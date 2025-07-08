@@ -15,10 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Cleanup
 RUN rm -rf /var/lib/apt/lists/*
 
+WORKDIR /app
 COPY . /app
-RUN pip --no-cache-dir install /app/markitdown-api
+RUN pip --no-cache-dir install \
+    /app/markitdown[all] \
+    /app/markitdown-api
 
-WORKDIR /markitdown-api
+WORKDIR /app/markitdown-api
 
 # Default USERID and GROUPID
 ARG USERID=nobody
