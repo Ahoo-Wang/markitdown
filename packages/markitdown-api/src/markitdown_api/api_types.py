@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 from markitdown._llm_utils import get_llm_prompt
@@ -22,5 +21,5 @@ class MarkdownResponse(Response):
 
 
 class ConvertResult(BaseModel):
-    title: Optional[str]
+    title: str | None = Field(default=None)
     markdown: str

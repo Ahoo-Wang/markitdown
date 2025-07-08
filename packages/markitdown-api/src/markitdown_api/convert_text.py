@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
 from io import BytesIO
 
+from fastapi import APIRouter, HTTPException
+from pydantic import Field
+
 from markitdown import StreamInfo
+from markitdown_api.api_types import ConvertRequest, ConvertResult
 from markitdown_api.commons import _build_markitdown
-from markitdown_api.types import ConvertRequest, ConvertResult
 
 TAG = "Convert Text"
 

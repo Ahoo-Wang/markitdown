@@ -4,7 +4,7 @@ from typing import Optional
 from openai import OpenAI
 
 from markitdown import MarkItDown
-from markitdown_api.types import LlmOptions
+from markitdown_api.api_types import LlmOptions
 
 
 def is_blank(s: str) -> bool:
