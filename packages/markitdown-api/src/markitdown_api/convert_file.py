@@ -37,7 +37,7 @@ def _convert_file(
         )
 
 
-@router.post(path="/", response_model=ConvertResult)
+@router.post(path="", response_model=ConvertResult)
 async def convert_file(
     file: Annotated[UploadFile, File()],
     openai_base_url: Annotated[str, Form()] = "",
