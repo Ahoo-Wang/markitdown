@@ -17,7 +17,7 @@ def blank_then_none(s: str) -> str | None:
     return s
 
 
-def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
+def build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
     base_url = api_key = llm_model = None
     if llm_options:
         base_url = blank_then_none(llm_options.open_ai_base_url)

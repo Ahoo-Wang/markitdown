@@ -4,7 +4,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from markitdown.__about__ import __version__ as markitdown_version
-from markitdown_api import convert_uri, convert_text, convert_file, __about__
+from markitdown_api import (
+    convert_uri,
+    convert_text,
+    convert_file,
+    convert_http,
+    __about__,
+)
 
 app = FastAPI(
     title="MarkItDown API",
@@ -21,6 +27,7 @@ app = FastAPI(
 app.include_router(convert_uri.router)
 app.include_router(convert_text.router)
 app.include_router(convert_file.router)
+app.include_router(convert_http.router)
 
 
 async def file_not_found_handler(request: Request, exc: FileNotFoundError):
