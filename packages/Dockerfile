@@ -15,13 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Cleanup
 RUN rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+
 COPY . /app
-RUN pip --no-cache-dir install \
-    /app/markitdown[all] \
-    /app/markitdown-api
 
 WORKDIR /app/markitdown-api
+RUN pip --no-cache-dir install .
+
+WORKDIR /markitdown-api
 
 # Default USERID and GROUPID
 ARG USERID=nobody
@@ -31,4 +31,4 @@ USER $USERID:$GROUPID
 
 EXPOSE 8000
 
-CMD ["uvicorn", "markitdown_api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["markitdown-api"]
