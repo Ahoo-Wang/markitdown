@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: markitdown-api
+  labels:
+    app: markitdown-api
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: markitdown-api
+  template:
+    metadata:
+      labels:
+        app: markitdown-api
+    spec:
+      containers:
+        - name: markitdown-api
+          env:
+          - name: OPENAI_BASE_URL
+            valueFrom:
+              secretKeyRef:
+                key: OPENAI_BASE_URL
+                name: markitdown-api-llm-options
+          - name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: OPENAI_API_KEY
+                name: markitdown-api-llm-options
+          - name: LLM_MODEL
+            valueFrom:
+              secretKeyRef:
+                key: LLM_MODEL
+                name: markitdown-api-llm-options
+          - name: LLM_PROMPT
+            valueFrom:
+              secretKeyRef:
+                key: LLM_PROMPT
+                name: markitdown-api-llm-options
+          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.0.12
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 8000
+          startupProbe:
+            failureThreshold: 15
+            httpGet:
+              path: /docs
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /docs
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /docs
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: "4"
+              memory: 2560Mi
+            requests:
+              cpu: '0.25'
+              memory: 1024Mi
+          volumeMounts:
+            - mountPath: /etc/localtime
+              name: volume-localtime
+      volumes:
+        - hostPath:
+            path: /etc/localtime
+            type: ""
+          name: volume-localtime
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: markitdown-api
+spec:
+  selector:
+    app: markitdown-api
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: markitdown-api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: markitdown-api
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
