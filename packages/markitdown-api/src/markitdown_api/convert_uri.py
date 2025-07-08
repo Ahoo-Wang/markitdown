@@ -40,7 +40,7 @@ def _convert_uri(uri: str, llm_options: LlmOptions | None = None) -> ConvertResu
     return ConvertResult(title=convert_result.title, markdown=convert_result.markdown)
 
 
-@router.post(path="/", response_model=ConvertResult)
+@router.post(path="", response_model=ConvertResult)
 async def convert_uri(
     request: Annotated[
         ConvertUrlRequest, Body(examples=[{"uri": "https://wow.ahoo.me/"}])
@@ -49,7 +49,7 @@ async def convert_uri(
     return _convert_uri(request.uri, request.llm)
 
 
-@router.get(path="/", response_model=ConvertResult)
+@router.get(path="", response_model=ConvertResult)
 async def convert_uri(uri: Annotated[str, URI_QUERY]):
     """
     The Uniform Resource Identifier (URI) to be converted.

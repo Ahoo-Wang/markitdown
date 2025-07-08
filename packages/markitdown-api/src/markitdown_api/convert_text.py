@@ -23,7 +23,7 @@ router = APIRouter(
 )
 
 
-@router.post(path="/", response_model=ConvertResult)
+@router.post(path="", response_model=ConvertResult)
 async def convert_text(request: ConvertTextRequest):
     if not request.text or len(request.text) > 100_000:
         raise HTTPException(status_code=400, detail="Invalid input text length")
