@@ -1,14 +1,15 @@
 from typing import BinaryIO, Union
 import base64
 import mimetypes
+
+from .._llm_utils import get_llm_prompt
 from .._stream_info import StreamInfo
 
 
 def llm_caption(
     file_stream: BinaryIO, stream_info: StreamInfo, *, client, model, prompt=None
 ) -> Union[None, str]:
-    if prompt is None or prompt.strip() == "":
-        prompt = "Write a detailed caption for this image."
+    prompt = get_llm_prompt(prompt)
 
     # Get the content type
     content_type = stream_info.mimetype
