@@ -15,6 +15,9 @@ class LlmOptions(BaseModel):
 class ConvertRequest(BaseModel):
     llm: LlmOptions | None = Field(default=None, description="LLM options")
 
+    def get_llm_options(self) -> str:
+        return self.llm.prompt if self.llm else ""
+
 
 class MarkdownResponse(Response):
     media_type = "text/markdown"

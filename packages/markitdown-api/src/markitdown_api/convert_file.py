@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, UploadFile, File, Form
 
 from markitdown import StreamInfo
-from markitdown_api.commons import _build_markitdown
+from markitdown_api.commons import build_markitdown
 from markitdown_api.api_types import ConvertResult, LlmOptions, MarkdownResponse
 
 TAG = "Convert File"
@@ -29,7 +29,7 @@ def _convert_file(
         model=llm_model,
     )
     with BufferedReader(file.file) as buffered_reader:
-        convert_result = _build_markitdown(openai_options).convert_stream(
+        convert_result = build_markitdown(openai_options).convert_stream(
             buffered_reader, stream_info=stream_info, llm_prompt=llm_prompt
         )
         return ConvertResult(

@@ -9,9 +9,7 @@ from markitdown_api.api_types import (
     ConvertResult,
     MarkdownResponse,
 )
-from markitdown_api.commons import (
-    _build_markitdown,
-)
+from markitdown_api.commons import build_markitdown
 
 TAG = "Convert Uri"
 
@@ -34,7 +32,7 @@ router = APIRouter(prefix="/convert/uri", tags=[TAG])
 
 def _convert_uri(uri: str, llm_options: LlmOptions | None = None) -> ConvertResult:
     llm_prompt = llm_options.prompt if llm_options else ""
-    convert_result = _build_markitdown(llm_options).convert_uri(
+    convert_result = build_markitdown(llm_options).convert_uri(
         uri, llm_prompt=llm_prompt
     )
     return ConvertResult(title=convert_result.title, markdown=convert_result.markdown)
