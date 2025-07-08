@@ -15,11 +15,7 @@ app = FastAPI(
     Text-based formats (CSV, JSON, XML),ZIP files (iterates over contents),Youtube URLs,EPubs and more!
     """,
     version=markitdown_version + "-" + __about__.__version__,
-    contact={
-        "name": "Ahoo Wang",
-        "url": "https://github.com/Ahoo-Wang",
-        "email": "ahoowang@qq.com",
-    },
+    contact={"name": "Ahoo Wang", "url": "https://github.com/Ahoo-Wang"},
 )
 
 app.include_router(convert_uri.router)
