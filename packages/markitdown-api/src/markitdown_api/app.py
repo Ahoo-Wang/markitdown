@@ -7,11 +7,7 @@ from markitdown.__about__ import __version__ as markitdown_version
 
 async def exception_not_found(request, exc):
     return JSONResponse(
-        {
-            'code': exc.status_code,
-            'error': 'not found'
-        },
-        status_code=exc.status_code
+        {"code": exc.status_code, "error": "not found"}, status_code=exc.status_code
     )
 
 
@@ -22,7 +18,7 @@ exception_handlers = {
 app = FastAPI(
     title="MarkItDown API",
     description="A simple API for converting URI, text, or files to Markdown format",
-    version=markitdown_version + '-' + __about__.__version__,
+    version=markitdown_version + "-" + __about__.__version__,
     exception_handlers=exception_handlers,
 )
 

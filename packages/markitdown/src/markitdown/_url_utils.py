@@ -18,12 +18,13 @@ def convert_relative_to_absolute_path(resource_url: str, path: str) -> str:
         normalized_path = urljoin(parsed_base.path, path)
 
         # Security: Check for path traversal attempts
-        if re.search(r'(\.\./|~)', normalized_path):
+        if re.search(r"(\.\./|~)", normalized_path):
             return path  # Fail-safe: return original path if traversal detected
 
         return parsed_base._replace(path=normalized_path).geturl()
     except Exception as e:
         # Improved logging (ensure logging is imported and configured elsewhere)
         import logging
+
         logging.warning(f"Path conversion error: {type(e).__name__}: {str(e)}")
         return path

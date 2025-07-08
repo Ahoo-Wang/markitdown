@@ -3,7 +3,12 @@ from typing import Annotated
 from fastapi import HTTPException, Query, Body, APIRouter
 from pydantic import BaseModel, Field
 
-from markitdown_api.commons import MarkdownResponse, OpenAIOptions, ConvertResult, _build_markitdown
+from markitdown_api.commons import (
+    MarkdownResponse,
+    OpenAIOptions,
+    ConvertResult,
+    _build_markitdown,
+)
 
 TAG = "Convert Uri"
 
@@ -22,10 +27,7 @@ class ConvertUrlRequest(BaseModel):
     openai: OpenAIOptions | None = Field(default=None, description="OpenAI options")
 
 
-router = APIRouter(
-    prefix="/convert/uri",
-    tags=[TAG]
-)
+router = APIRouter(prefix="/convert/uri", tags=[TAG])
 
 
 def _convert_uri(uri: str, openai: OpenAIOptions | None = None) -> ConvertResult:
@@ -34,13 +36,11 @@ def _convert_uri(uri: str, openai: OpenAIOptions | None = None) -> ConvertResult
 
 
 @router.post(path="/", response_model=ConvertResult)
-async def convert_uri(request: Annotated[ConvertUrlRequest, Body(
-    examples=[
-        {
-            "uri": "https://wow.ahoo.me/"
-        }
+async def convert_uri(
+    request: Annotated[
+        ConvertUrlRequest, Body(examples=[{"uri": "https://wow.ahoo.me/"}])
     ]
-)]):
+):
     return _convert_uri(request.uri, request.openai)
 
 
