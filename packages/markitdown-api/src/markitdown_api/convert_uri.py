@@ -4,10 +4,13 @@ from fastapi import Query, Body, APIRouter
 from pydantic import BaseModel, Field
 
 from markitdown_api.commons import (
-    MarkdownResponse,
+    _build_markitdown,
+)
+from markitdown_api.types import (
+    ConvertRequest,
     LlmOptions,
     ConvertResult,
-    _build_markitdown,
+    MarkdownResponse,
 )
 
 TAG = "Convert Uri"
@@ -22,9 +25,8 @@ URI_PATTERN = "^(file|data|http|https)://"
 URI_QUERY = Query(description=URI_DESCRIPTION, pattern=URI_PATTERN)
 
 
-class ConvertUrlRequest(BaseModel):
+class ConvertUrlRequest(ConvertRequest):
     uri: str = Field(description=URI_DESCRIPTION, pattern=URI_PATTERN)
-    llm: LlmOptions | None = Field(default=None, description="LLM options")
 
 
 router = APIRouter(prefix="/convert/uri", tags=[TAG])

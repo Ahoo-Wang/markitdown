@@ -2,22 +2,12 @@ from io import BufferedReader
 from typing import Annotated
 
 from fastapi import APIRouter, UploadFile, File, Form
-from pydantic import BaseModel, Field
 
 from markitdown import StreamInfo
-from markitdown_api.commons import (
-    LlmOptions,
-    ConvertResult,
-    _build_markitdown,
-    MarkdownResponse,
-)
+from markitdown_api.commons import _build_markitdown
+from markitdown_api.types import ConvertResult, LlmOptions, MarkdownResponse
 
 TAG = "Convert File"
-
-
-class ConvertFileRequest(BaseModel):
-    llm: LlmOptions | None = Field(default=None, description="LLM options")
-
 
 router = APIRouter(
     prefix="/convert/file",

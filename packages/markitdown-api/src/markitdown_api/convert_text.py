@@ -3,17 +3,17 @@ from pydantic import BaseModel, Field
 from io import BytesIO
 
 from markitdown import StreamInfo
-from markitdown_api.commons import LlmOptions, ConvertResult, _build_markitdown
+from markitdown_api.commons import _build_markitdown
+from markitdown_api.types import ConvertRequest, ConvertResult
 
 TAG = "Convert Text"
 
 
-class ConvertTextRequest(BaseModel):
+class ConvertTextRequest(ConvertRequest):
     text: str
     mimetype: str = Field(
         default="text/plain", description="MIME type of the input text"
     )
-    llm: LlmOptions | None = Field(default=None, description="LLM options")
 
 
 router = APIRouter(

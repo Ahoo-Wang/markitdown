@@ -2,29 +2,9 @@ import os
 from typing import Optional
 
 from openai import OpenAI
-from pydantic import BaseModel, Field
-from starlette.responses import Response
 
 from markitdown import MarkItDown
-from markitdown._llm_utils import get_llm_prompt
-
-
-class ConvertResult(BaseModel):
-    title: Optional[str]
-    markdown: str
-
-
-class MarkdownResponse(Response):
-    media_type = "text/markdown"
-
-
-class LlmOptions(BaseModel):
-    open_ai_base_url: str | None = Field(
-        default=None, description="OpenAI API base URL"
-    )
-    open_ai_api_key: str | None = Field(default=None, description="OpenAI API key")
-    model: str | None = Field(default=None, description="LLM model")
-    prompt: str = get_llm_prompt()
+from markitdown_api.types import LlmOptions
 
 
 def is_blank(s: str) -> bool:
@@ -38,7 +18,7 @@ def blank_then_none(s: str) -> str | None:
 
 
 def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
-    base_url = api_key = llm_model = prompt = None
+    base_url = api_key = llm_model = None
     if llm_options:
         base_url = blank_then_none(llm_options.open_ai_base_url)
         api_key = blank_then_none(llm_options.open_ai_api_key)
