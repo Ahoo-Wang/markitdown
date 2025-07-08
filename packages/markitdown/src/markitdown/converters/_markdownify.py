@@ -6,6 +6,7 @@ from urllib.parse import quote, unquote, urlparse, urlunparse
 
 from markitdown._url_utils import convert_relative_to_absolute_path
 
+
 class _CustomMarkdownify(markdownify.MarkdownConverter):
     """
     A custom version of markdownify's MarkdownConverter. Changes include:
@@ -24,12 +25,12 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
         super().__init__(**options)
 
     def convert_hn(
-            self,
-            n: int,
-            el: Any,
-            text: str,
-            convert_as_inline: Optional[bool] = False,
-            **kwargs,
+        self,
+        n: int,
+        el: Any,
+        text: str,
+        convert_as_inline: Optional[bool] = False,
+        **kwargs,
     ) -> str:
         """Same as usual, but be sure to start with a new line"""
         if not convert_as_inline:
@@ -39,11 +40,11 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
         return super().convert_hn(n, el, text, convert_as_inline)  # type: ignore
 
     def convert_a(
-            self,
-            el: Any,
-            text: str,
-            convert_as_inline: Optional[bool] = False,
-            **kwargs,
+        self,
+        el: Any,
+        text: str,
+        convert_as_inline: Optional[bool] = False,
+        **kwargs,
     ):
         """Same as usual converter, but removes Javascript links and escapes URIs."""
         prefix, suffix, text = markdownify.chomp(text)  # type: ignore
@@ -69,10 +70,10 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
 
         # For the replacement see #29: text nodes underscores are escaped
         if (
-                self.options["autolinks"]
-                and text.replace(r"\_", "_") == href
-                and not title
-                and not self.options["default_title"]
+            self.options["autolinks"]
+            and text.replace(r"\_", "_") == href
+            and not title
+            and not self.options["default_title"]
         ):
             # Shortcut syntax
             return "<%s>" % href
@@ -86,11 +87,11 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
         )
 
     def convert_img(
-            self,
-            el: Any,
-            text: str,
-            convert_as_inline: Optional[bool] = False,
-            **kwargs,
+        self,
+        el: Any,
+        text: str,
+        convert_as_inline: Optional[bool] = False,
+        **kwargs,
     ) -> str:
         """Same as usual converter, but removes data URIs"""
 
@@ -99,8 +100,8 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
         title = el.attrs.get("title", None) or ""
         title_part = ' "%s"' % title.replace('"', r"\"") if title else ""
         if (
-                convert_as_inline
-                and el.parent.name not in self.options["keep_inline_images_in"]
+            convert_as_inline
+            and el.parent.name not in self.options["keep_inline_images_in"]
         ):
             return alt
 
