@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 from markitdown import MarkItDown
+from markitdown._llm_utils import get_llm_prompt
 
 
 class ConvertResult(BaseModel):
@@ -23,7 +24,7 @@ class LlmOptions(BaseModel):
     )
     open_ai_api_key: str | None = Field(default=None, description="OpenAI API key")
     model: str | None = Field(default=None, description="LLM model")
-    prompt: str = ""
+    prompt: str = get_llm_prompt()
 
 
 def is_blank(s: str) -> bool:
