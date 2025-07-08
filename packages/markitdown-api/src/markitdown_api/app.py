@@ -8,7 +8,12 @@ from markitdown_api import convert_uri, convert_text, convert_file, __about__
 
 app = FastAPI(
     title="MarkItDown API",
-    description="A simple API for converting URI, text, or files to Markdown format",
+    description="""A simple API for converting various files to Markdown format.
+    Currently supports the conversion from:
+    PDF,PowerPoint,Word,Excel,
+    Images (EXIF metadata and OCR),Audio (EXIF metadata and speech transcription),HTML,
+    Text-based formats (CSV, JSON, XML),ZIP files (iterates over contents),Youtube URLs,EPubs and more!
+    """,
     version=markitdown_version + "-" + __about__.__version__,
 )
 
