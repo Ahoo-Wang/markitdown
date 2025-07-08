@@ -29,9 +29,9 @@ classifiers = [
 ]
 dependencies = [
     "markitdown[all] @ git+https://github.com/Ahoo-Wang/markitdown.git@dev#subdirectory=packages/markitdown",
-    "fastapi[standard]>=0.68.0",
-    "uvicorn>=0.15.0",
-    "openai"
+    "fastapi[standard]>=0.115.14",
+    "uvicorn[standard]>=0.35.0",
+    "openai>=1.93.0"
 ]
 
 [project.scripts]
