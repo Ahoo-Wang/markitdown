@@ -28,7 +28,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-    "markitdown[all] @ git+https://github.com/Ahoo-Wang/markitdown.git@dev#subdirectory=packages/markitdown",
+    "markitdown[all] @ file:../markitdown",
     "fastapi[standard]>=0.115.14",
     "uvicorn[standard]>=0.35.0",
     "openai>=1.93.0"
