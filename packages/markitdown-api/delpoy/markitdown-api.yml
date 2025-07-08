@@ -42,11 +42,11 @@ spec:
               secretKeyRef:
                 key: LLM_PROMPT
                 name: markitdown-api-llm-options
-          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.0.12
+          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.0.16
           ports:
             - name: http
               protocol: TCP
-              containerPort: 8000
+              containerPort: 3002
           startupProbe:
             failureThreshold: 15
             httpGet:
