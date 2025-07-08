@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Cleanup
 RUN rm -rf /var/lib/apt/lists/*
 
-COPY . /app
-RUN pip --no-cache-dir install /app
+COPY .. /app
+RUN pip --no-cache-dir install /app/markitdown-api
 
 WORKDIR /markitdown-api
 
