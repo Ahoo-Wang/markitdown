@@ -1,16 +1,16 @@
 from typing import Annotated
 
 from fastapi import Query, Body, APIRouter
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from markitdown_api.commons import (
-    _build_markitdown,
-)
-from markitdown_api.types import (
+from markitdown_api.api_types import (
     ConvertRequest,
     LlmOptions,
     ConvertResult,
     MarkdownResponse,
+)
+from markitdown_api.commons import (
+    _build_markitdown,
 )
 
 TAG = "Convert Uri"

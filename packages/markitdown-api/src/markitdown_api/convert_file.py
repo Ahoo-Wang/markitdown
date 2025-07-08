@@ -5,7 +5,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 
 from markitdown import StreamInfo
 from markitdown_api.commons import _build_markitdown
-from markitdown_api.types import ConvertResult, LlmOptions, MarkdownResponse
+from markitdown_api.api_types import ConvertResult, LlmOptions, MarkdownResponse
 
 TAG = "Convert File"
 
