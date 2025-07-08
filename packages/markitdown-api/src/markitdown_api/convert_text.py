@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from io import BytesIO
 
 from markitdown import StreamInfo
-from markitdown_api.commons import OpenAIOptions, ConvertResult, _build_markitdown
+from markitdown_api.commons import LlmOptions, ConvertResult, _build_markitdown
 
 TAG = "Convert Text"
 
@@ -13,7 +13,7 @@ class ConvertTextRequest(BaseModel):
     mimetype: str = Field(
         default="text/plain", description="MIME type of the input text"
     )
-    openai: OpenAIOptions | None = Field(default=None, description="OpenAI options")
+    llm: LlmOptions | None = Field(default=None, description="LLM options")
 
 
 router = APIRouter(
@@ -31,8 +31,9 @@ async def convert_text(request: ConvertTextRequest):
     binary_io = BytesIO(text_binary)
 
     stream_info = StreamInfo(mimetype=request.mimetype)
-    convert_result = _build_markitdown(request.openai).convert_stream(
-        stream=binary_io, stream_info=stream_info
+    llm_prompt = request.llm.prompt if request.llm else ""
+    convert_result = _build_markitdown(request.llm).convert_stream(
+        stream=binary_io, stream_info=stream_info, llm_prompt=llm_prompt
     )
 
     return {"title": convert_result.title, "markdown": convert_result.markdown}

@@ -2,10 +2,11 @@ import os
 from typing import Optional
 
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 from markitdown import MarkItDown
+from markitdown._llm_utils import get_llm_prompt
 
 
 class ConvertResult(BaseModel):
@@ -17,11 +18,13 @@ class MarkdownResponse(Response):
     media_type = "text/markdown"
 
 
-class OpenAIOptions(BaseModel):
-    base_url: Optional[str]
-    api_key: Optional[str]
-    model: str = "gpt-4o"
-    prompt: str = ""
+class LlmOptions(BaseModel):
+    open_ai_base_url: str | None = Field(
+        default=None, description="OpenAI API base URL"
+    )
+    open_ai_api_key: str | None = Field(default=None, description="OpenAI API key")
+    model: str | None = Field(default=None, description="LLM model")
+    prompt: str = get_llm_prompt()
 
 
 def is_blank(s: str) -> bool:
@@ -34,21 +37,18 @@ def blank_then_none(s: str) -> str | None:
     return s
 
 
-def _build_markitdown(openai_options: Optional[OpenAIOptions] = None) -> MarkItDown:
+def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
     base_url = api_key = llm_model = prompt = None
-    if openai_options:
-        base_url = blank_then_none(openai_options.base_url)
-        api_key = blank_then_none(openai_options.api_key)
-        llm_model = blank_then_none(openai_options.model) or blank_then_none(
-            os.environ.get("OPENAI_MODEL")
-        )
-        prompt = blank_then_none(openai_options.prompt)
-
+    if llm_options:
+        base_url = blank_then_none(llm_options.open_ai_base_url)
+        api_key = blank_then_none(llm_options.open_ai_api_key)
+        llm_model = blank_then_none(llm_options.model)
+    if not llm_model:
+        llm_model = blank_then_none(os.environ.get("LLM_MODEL"))
     llm_client = OpenAI(base_url=base_url, api_key=api_key)
     return MarkItDown(
         enable_plugins=True,
         enable_builtins=True,
         llm_client=llm_client,
         llm_model=llm_model,
-        llm_prompt=prompt,
     )
