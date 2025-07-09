@@ -19,7 +19,7 @@ class ConvertRequest(BaseModel):
         description="If keep_data_uris is True, use base64 encoding for images",
     )
 
-    def get_llm_options(self) -> str:
+    def get_llm_prompt(self) -> str:
         return self.llm.prompt if self.llm else ""
 
 

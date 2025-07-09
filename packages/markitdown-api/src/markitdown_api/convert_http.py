@@ -90,7 +90,7 @@ def _convert_http(request: ConvertHttpRequest) -> ConvertHttpResponse:
     )
     convert_result = build_markitdown(request.llm).convert_response(
         response,
-        llm_prompt=request.get_llm_options(),
+        llm_prompt=request.get_llm_prompt(),
         keep_data_uris=request.keep_data_uris,
     )
 
