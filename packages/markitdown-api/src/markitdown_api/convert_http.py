@@ -40,22 +40,32 @@ class ConvertHttpRequest(ConvertRequest):
     )
 
 
+class ConvertHttpResponse(ConvertResult):
+    mime_type: str = Field(default="", description="Mime type of the data")
+    data_size: int = Field(default=0, description="Size of the data in bytes")
+
+
 router = APIRouter(prefix="/convert/http", tags=[TAG])
 
 
-def _convert_http(request: ConvertHttpRequest) -> ConvertResult:
+def _convert_http(request: ConvertHttpRequest) -> ConvertHttpResponse:
     response = requests.request(
         request.method.value, request.url, headers=request.headers
     )
+    data_size = len(response.content)
     convert_result = build_markitdown(request.llm).convert_response(
         response,
         llm_prompt=request.get_llm_options(),
         keep_data_uris=request.keep_data_uris,
     )
-    return ConvertResult(title=convert_result.title, markdown=convert_result.markdown)
+    return ConvertHttpResponse(
+        title=convert_result.title,
+        markdown=convert_result.markdown,
+        data_size=data_size,
+    )
 
 
-@router.post(path="", response_model=ConvertResult)
+@router.post(path="", response_model=ConvertHttpResponse)
 async def convert_http(
     request: Annotated[
         ConvertHttpRequest, Body(examples=[{"url": "https://wow.ahoo.me/"}])
