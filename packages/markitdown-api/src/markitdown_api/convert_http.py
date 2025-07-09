@@ -1,15 +1,18 @@
+from email.utils import parsedate_to_datetime
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Tuple
 
 import requests
 from fastapi import Body, APIRouter
+from requests.utils import CaseInsensitiveDict
+
 from markitdown_api.api_types import (
     ConvertRequest,
     ConvertResult,
     MarkdownResponse,
 )
 from markitdown_api.commons import build_markitdown
-from pydantic import Field
+from pydantic import Field, BaseModel
 
 TAG = "Convert Http"
 
@@ -40,12 +43,40 @@ class ConvertHttpRequest(ConvertRequest):
     )
 
 
-class ConvertHttpResponse(ConvertResult):
-    mime_type: str = Field(default="", description="Mime type of the data")
+class ConvertHttpMetadata(BaseModel):
+    mimetype: str = Field(default="", description="Mime type of the data")
     data_size: int = Field(default=0, description="Size of the data in bytes")
+    last_modified: int | None = Field(
+        default=None,
+        description="Last modified timestamp(seconds) of the data",
+    )
+
+
+class ConvertHttpResponse(ConvertResult):
+    metadata: ConvertHttpMetadata = Field(
+        default=ConvertHttpMetadata(),
+        description="Metadata of the data",
+    )
 
 
 router = APIRouter(prefix="/convert/http", tags=[TAG])
+
+
+def __parse_content_type(headers: CaseInsensitiveDict[str]) -> str | None:
+    content_type = headers.get("Content-Type")
+    if not content_type:
+        return None
+
+    parts = content_type.split(";")
+    return parts.pop(0).strip()
+
+
+def __parse_last_modified_timestamp(headers: CaseInsensitiveDict[str]) -> int | None:
+    last_modified_str = headers.get("Last-Modified")
+    if not last_modified_str:
+        return None
+    last_modified = parsedate_to_datetime(last_modified_str)
+    return int(last_modified.timestamp())
 
 
 def _convert_http(request: ConvertHttpRequest) -> ConvertHttpResponse:
@@ -53,15 +84,22 @@ def _convert_http(request: ConvertHttpRequest) -> ConvertHttpResponse:
         request.method.value, request.url, headers=request.headers
     )
     data_size = len(response.content)
+    last_modified_timestamp = __parse_last_modified_timestamp(response.headers)
+
+    mimetype = __parse_content_type(response.headers)
+    metadata = ConvertHttpMetadata(
+        data_size=data_size, mimetype=mimetype, last_modified=last_modified_timestamp
+    )
     convert_result = build_markitdown(request.llm).convert_response(
         response,
         llm_prompt=request.get_llm_options(),
         keep_data_uris=request.keep_data_uris,
     )
+
     return ConvertHttpResponse(
         title=convert_result.title,
         markdown=convert_result.markdown,
-        data_size=data_size,
+        metadata=metadata,
     )
 
 
