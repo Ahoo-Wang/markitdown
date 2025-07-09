@@ -6,18 +6,25 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Run a MarkItDown API server")
+    default_host = "127.0.0.1"
     parser.add_argument(
-        "--host", default=None, help="Host to bind to (default: 127.0.0.1)"
+        "--host",
+        default=default_host,
+        help=f"Host to bind to (default: {default_host})",
     )
+    default_port = 3002
     parser.add_argument(
-        "--port", type=int, default=None, help="Port to listen on (default: 3002)"
+        "--port",
+        type=int,
+        default=default_port,
+        help=f"Port to listen on (default: {default_port})",
     )
     args = parser.parse_args()
 
     uvicorn.run(
         app,
-        host=args.host if args.host else "127.0.0.1",
-        port=args.port if args.port else 3002,
+        host=args.host,
+        port=args.port,
     )
 
 
