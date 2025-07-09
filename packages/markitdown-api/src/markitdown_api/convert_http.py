@@ -43,9 +43,9 @@ class ConvertHttpRequest(ConvertRequest):
     )
 
 
-class ConvertHttpMetadata(BaseModel):
-    mimetype: str = Field(default="", description="Mime type of the data")
-    data_size: int = Field(default=0, description="Size of the data in bytes")
+class HttpResponseMetadata(BaseModel):
+    mimetype: str | None = Field(default=None, description="Mime type of the data")
+    data_size: int | None = Field(default=None, description="Size of the data in bytes")
     last_modified: int | None = Field(
         default=None,
         description="Last modified timestamp(seconds) of the data",
@@ -53,9 +53,8 @@ class ConvertHttpMetadata(BaseModel):
 
 
 class ConvertHttpResponse(ConvertResult):
-    metadata: ConvertHttpMetadata = Field(
-        default=ConvertHttpMetadata(),
-        description="Metadata of the data",
+    metadata: HttpResponseMetadata = Field(
+        description="Metadata of the http response",
     )
 
 
@@ -84,11 +83,10 @@ def _convert_http(request: ConvertHttpRequest) -> ConvertHttpResponse:
         request.method.value, request.url, headers=request.headers
     )
     data_size = len(response.content)
-    last_modified_timestamp = __parse_last_modified_timestamp(response.headers)
-
+    last_modified = __parse_last_modified_timestamp(response.headers)
     mimetype = __parse_content_type(response.headers)
-    metadata = ConvertHttpMetadata(
-        data_size=data_size, mimetype=mimetype, last_modified=last_modified_timestamp
+    metadata = HttpResponseMetadata(
+        data_size=data_size, mimetype=mimetype, last_modified=last_modified
     )
     convert_result = build_markitdown(request.llm).convert_response(
         response,
