@@ -11,7 +11,7 @@ TAG = "Convert Text"
 
 
 class ConvertTextRequest(ConvertRequest):
-    text: str
+    text: str = Field(min_length=1, description="Text to convert")
     mimetype: str = Field(
         default="text/plain", description="MIME type of the input text"
     )
@@ -25,9 +25,6 @@ router = APIRouter(
 
 @router.post(path="", response_model=ConvertResult)
 async def convert_text(request: ConvertTextRequest):
-    if not request.text or len(request.text) > 100_000:
-        raise HTTPException(status_code=400, detail="Invalid input text length")
-
     text_binary = request.text.encode("utf-8")
     binary_io = BytesIO(text_binary)
 
