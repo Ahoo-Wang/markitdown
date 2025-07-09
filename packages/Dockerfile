@@ -32,3 +32,4 @@ USER $USERID:$GROUPID
 EXPOSE 3002
 
 ENTRYPOINT ["markitdown-api"]
+CMD ["--host", "0.0.0.0"]
