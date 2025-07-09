@@ -35,7 +35,9 @@ router = APIRouter(prefix="/convert/http", tags=[TAG])
 def _convert_http(request: ConvertHttpRequest) -> ConvertResult:
     response = requests.get(request.url, headers=request.headers)
     convert_result = build_markitdown(request.llm).convert_response(
-        response, llm_prompt=request.get_llm_options()
+        response,
+        llm_prompt=request.get_llm_options(),
+        keep_data_uris=request.keep_data_uris,
     )
     return ConvertResult(title=convert_result.title, markdown=convert_result.markdown)
 

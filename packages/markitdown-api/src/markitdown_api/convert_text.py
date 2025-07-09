@@ -34,7 +34,10 @@ async def convert_text(request: ConvertTextRequest):
     stream_info = StreamInfo(mimetype=request.mimetype)
     llm_prompt = request.llm.prompt if request.llm else ""
     convert_result = build_markitdown(request.llm).convert_stream(
-        stream=binary_io, stream_info=stream_info, llm_prompt=llm_prompt
+        stream=binary_io,
+        stream_info=stream_info,
+        llm_prompt=llm_prompt,
+        keep_data_uris=request.keep_data_uris,
     )
 
     return {"title": convert_result.title, "markdown": convert_result.markdown}

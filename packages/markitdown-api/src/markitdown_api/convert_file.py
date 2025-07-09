@@ -21,6 +21,7 @@ def _convert_file(
     openai_api_key: str = "",
     llm_model: str = "",
     llm_prompt: str = "",
+    keep_data_uris: bool = False,
 ) -> ConvertResult:
     stream_info = StreamInfo(mimetype=file.content_type)
     openai_options = LlmOptions(
@@ -30,7 +31,10 @@ def _convert_file(
     )
     with BufferedReader(file.file) as buffered_reader:
         convert_result = build_markitdown(openai_options).convert_stream(
-            buffered_reader, stream_info=stream_info, llm_prompt=llm_prompt
+            buffered_reader,
+            stream_info=stream_info,
+            llm_prompt=llm_prompt,
+            keep_data_uris=keep_data_uris,
         )
         return ConvertResult(
             title=convert_result.title, markdown=convert_result.markdown
@@ -44,8 +48,11 @@ async def convert_file(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
+    keep_data_uris: Annotated[bool, Form()] = False,
 ):
-    return _convert_file(file, openai_base_url, openai_api_key, llm_model, llm_prompt)
+    return _convert_file(
+        file, openai_base_url, openai_api_key, llm_model, llm_prompt, keep_data_uris
+    )
 
 
 @router.post(path="/markdown", response_class=MarkdownResponse)
@@ -55,7 +62,8 @@ async def convert_file_markdown(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
+    keep_data_uris: Annotated[bool, Form()] = False,
 ):
     return _convert_file(
-        file, openai_base_url, openai_api_key, llm_model, llm_prompt
+        file, openai_base_url, openai_api_key, llm_model, llm_prompt, keep_data_uris
     ).markdown

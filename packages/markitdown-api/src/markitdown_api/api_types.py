@@ -14,6 +14,10 @@ class LlmOptions(BaseModel):
 
 class ConvertRequest(BaseModel):
     llm: LlmOptions | None = Field(default=None, description="LLM options")
+    keep_data_uris: bool = Field(
+        default=False,
+        description="If keep_data_uris is True, use base64 encoding for images",
+    )
 
     def get_llm_options(self) -> str:
         return self.llm.prompt if self.llm else ""
