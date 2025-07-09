@@ -29,11 +29,10 @@ async def convert_text(request: ConvertTextRequest):
     binary_io = BytesIO(text_binary)
 
     stream_info = StreamInfo(mimetype=request.mimetype)
-    llm_prompt = request.llm.prompt if request.llm else ""
     convert_result = build_markitdown(request.llm).convert_stream(
         stream=binary_io,
         stream_info=stream_info,
-        llm_prompt=llm_prompt,
+        llm_prompt=request.get_llm_prompt(),
         keep_data_uris=request.keep_data_uris,
     )
 

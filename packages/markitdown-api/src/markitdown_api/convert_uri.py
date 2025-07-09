@@ -33,7 +33,7 @@ router = APIRouter(prefix="/convert/uri", tags=[TAG])
 def _convert_uri(request: ConvertUriRequest) -> ConvertResult:
     convert_result = build_markitdown(request.llm).convert_uri(
         request.uri,
-        llm_prompt=request.get_llm_options(),
+        llm_prompt=request.get_llm_prompt(),
         keep_data_uris=request.keep_data_uris,
     )
     return ConvertResult(title=convert_result.title, markdown=convert_result.markdown)
