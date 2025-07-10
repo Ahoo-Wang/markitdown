@@ -7,7 +7,7 @@ from fastapi import Body, APIRouter
 from pydantic import Field
 from requests.utils import CaseInsensitiveDict
 
-from markitdown_api.ApiConverter import ApiConverter
+from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
     ConvertResult,
