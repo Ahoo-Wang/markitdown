@@ -26,22 +26,47 @@ spec:
             valueFrom:
               secretKeyRef:
                 key: OPENAI_BASE_URL
-                name: markitdown-api-llm-options
+                name: markitdown-api-config
           - name: OPENAI_API_KEY
             valueFrom:
               secretKeyRef:
                 key: OPENAI_API_KEY
-                name: markitdown-api-llm-options
+                name: markitdown-api-config
           - name: LLM_MODEL
             valueFrom:
               secretKeyRef:
                 key: LLM_MODEL
-                name: markitdown-api-llm-options
+                name: markitdown-api-config
           - name: LLM_PROMPT
             valueFrom:
               secretKeyRef:
                 key: LLM_PROMPT
-                name: markitdown-api-llm-options
+                name: markitdown-api-config
+          - name: OSS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                key: OSS_ACCESS_KEY_ID
+                name: markitdown-api-config
+          - name: OSS_ACCESS_KEY_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: OSS_ACCESS_KEY_SECRET
+                name: markitdown-api-config
+          - name: OSS_ENDPOINT
+            valueFrom:
+              secretKeyRef:
+                key: OSS_ENDPOINT
+                name: markitdown-api-config
+          - name: OSS_REGION
+            valueFrom:
+              secretKeyRef:
+                key: OSS_REGION
+                name: markitdown-api-config
+          - name: OSS_BUCKET
+            valueFrom:
+              secretKeyRef:
+                key: OSS_BUCKET
+                name: markitdown-api-config
           image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.0.16
           ports:
             - name: http
