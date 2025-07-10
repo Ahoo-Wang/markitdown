@@ -69,7 +69,7 @@ spec:
               secretKeyRef:
                 key: OSS_BUCKET
                 name: markitdown-api-config
-          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.2.2
+          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.2.3
           ports:
             - name: http
               protocol: TCP
