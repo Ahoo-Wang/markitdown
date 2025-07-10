@@ -22,6 +22,8 @@ spec:
       containers:
         - name: markitdown-api
           env:
+          - name: LANG
+            value: zh_CN.UTF-8
           - name: OPENAI_BASE_URL
             valueFrom:
               secretKeyRef:
