@@ -1,15 +1,15 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Query, Body, APIRouter
 from pydantic import Field
 
+from markitdown_api.ApiConverter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
-    LlmOptions,
     ConvertResult,
     MarkdownResponse,
+    ConvertResponse,
 )
-from markitdown_api.commons import build_markitdown
 
 TAG = "Convert Uri"
 
@@ -27,37 +27,37 @@ class ConvertUriRequest(ConvertRequest):
     uri: str = Field(description=URI_DESCRIPTION, pattern=URI_PATTERN)
 
 
+class UriApiConverter(ApiConverter):
+    def __init__(self, request: ConvertUriRequest):
+        super().__init__(request)
+
+    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+        result = self.markitdown.convert_uri(self.request.uri, **kwargs)
+        return ConvertResult(title=result.title, markdown=result.markdown)
+
+
 router = APIRouter(prefix="/convert/uri", tags=[TAG])
 
 
-def _convert_uri(request: ConvertUriRequest) -> ConvertResult:
-    convert_result = build_markitdown(request.llm).convert_uri(
-        request.uri,
-        llm_prompt=request.get_llm_prompt(),
-        keep_data_uris=request.keep_data_uris,
-    )
-    return ConvertResult(title=convert_result.title, markdown=convert_result.markdown)
-
-
-@router.post(path="", response_model=ConvertResult)
+@router.post(path="", response_model=ConvertResponse)
 async def convert_uri(
     request: Annotated[
         ConvertUriRequest, Body(examples=[{"uri": "https://wow.ahoo.me/"}])
     ]
 ):
-    return _convert_uri(request)
+    return UriApiConverter(request).convert()
 
 
-@router.get(path="", response_model=ConvertResult)
+@router.get(path="", response_model=ConvertResponse)
 async def convert_uri(uri: Annotated[str, URI_QUERY]):
     """
     The Uniform Resource Identifier (URI) to be converted.
     Supported schemes include 'http://', 'https://', 'file://', and custom protocols understood by MarkItDown.
     Example: https://example.com/document.docx
     """
-    return _convert_uri(ConvertUriRequest(uri=uri))
+    return UriApiConverter(ConvertUriRequest(uri=uri)).convert()
 
 
 @router.get(path="/markdown", response_class=MarkdownResponse)
 async def convert_uri_markdown(uri: Annotated[str, URI_QUERY]):
-    return _convert_uri(ConvertUriRequest(uri=uri)).markdown
+    return UriApiConverter(ConvertUriRequest(uri=uri)).convert().result.markdown

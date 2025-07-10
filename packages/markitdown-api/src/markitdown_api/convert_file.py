@@ -1,11 +1,19 @@
 from io import BufferedReader
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, UploadFile, File, Form
 
 from markitdown import StreamInfo
-from markitdown_api.commons import build_markitdown
-from markitdown_api.api_types import ConvertResult, LlmOptions, MarkdownResponse
+from markitdown_api.ApiConverter import ApiConverter
+from markitdown_api.api_types import (
+    ConvertResult,
+    LlmOptions,
+    MarkdownResponse,
+    ConvertRequest,
+    ConvertResponse,
+    StreamMetadata,
+)
+from markitdown_api.convert_http import _parse_mime_type_from_content_type
 
 TAG = "Convert File"
 
@@ -15,33 +23,32 @@ router = APIRouter(
 )
 
 
-def _convert_file(
-    file: UploadFile,
-    openai_base_url: str = "",
-    openai_api_key: str = "",
-    llm_model: str = "",
-    llm_prompt: str = "",
-    keep_data_uris: bool = False,
-) -> ConvertResult:
-    stream_info = StreamInfo(mimetype=file.content_type)
-    openai_options = LlmOptions(
-        open_ai_api_key=openai_api_key,
-        open_ai_base_url=openai_base_url,
-        model=llm_model,
-    )
-    with BufferedReader(file.file) as buffered_reader:
-        convert_result = build_markitdown(openai_options).convert_stream(
-            buffered_reader,
-            stream_info=stream_info,
-            llm_prompt=llm_prompt,
-            keep_data_uris=keep_data_uris,
-        )
-        return ConvertResult(
-            title=convert_result.title, markdown=convert_result.markdown
-        )
+class ConvertFileRequest(ConvertRequest):
+    file: UploadFile
 
 
-@router.post(path="", response_model=ConvertResult)
+class FileApiConverter(ApiConverter):
+    def __init__(self, request: ConvertFileRequest):
+        super().__init__(request)
+
+    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+        self.metadata = StreamMetadata(
+            data_size=self.request.file.size,
+            mimetype=_parse_mime_type_from_content_type(self.request.file.content_type),
+        )
+        stream_info = StreamInfo(
+            mimetype=self.metadata.mimetype, filename=self.request.file.filename
+        )
+        with BufferedReader(self.request.file.file) as buffered_reader:
+            convert_result = self.markitdown.convert_stream(
+                buffered_reader, stream_info=stream_info, **kwargs
+            )
+            return ConvertResult(
+                title=convert_result.title, markdown=convert_result.markdown
+            )
+
+
+@router.post(path="", response_model=ConvertResponse)
 async def convert_file(
     file: Annotated[UploadFile, File()],
     openai_base_url: Annotated[str, Form()] = "",
@@ -50,9 +57,18 @@ async def convert_file(
     llm_prompt: Annotated[str, Form()] = "",
     keep_data_uris: Annotated[bool, Form()] = False,
 ):
-    return _convert_file(
-        file, openai_base_url, openai_api_key, llm_model, llm_prompt, keep_data_uris
-    )
+    return FileApiConverter(
+        ConvertFileRequest(
+            file=file,
+            keep_data_uris=keep_data_uris,
+            llm=LlmOptions(
+                model=llm_model,
+                open_ai_api_key=openai_api_key,
+                open_ai_base_url=openai_base_url,
+                prompt=llm_prompt,
+            ),
+        )
+    ).convert()
 
 
 @router.post(path="/markdown", response_class=MarkdownResponse)
@@ -64,6 +80,19 @@ async def convert_file_markdown(
     llm_prompt: Annotated[str, Form()] = "",
     keep_data_uris: Annotated[bool, Form()] = False,
 ):
-    return _convert_file(
-        file, openai_base_url, openai_api_key, llm_model, llm_prompt, keep_data_uris
-    ).markdown
+    return (
+        FileApiConverter(
+            ConvertFileRequest(
+                file=file,
+                keep_data_uris=keep_data_uris,
+                llm=LlmOptions(
+                    model=llm_model,
+                    open_ai_api_key=openai_api_key,
+                    open_ai_base_url=openai_base_url,
+                    prompt=llm_prompt,
+                ),
+            )
+        )
+        .convert()
+        .result.markdown
+    )

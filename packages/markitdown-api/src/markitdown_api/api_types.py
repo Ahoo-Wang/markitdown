@@ -27,6 +27,23 @@ class MarkdownResponse(Response):
     media_type = "text/markdown"
 
 
+class StreamMetadata(BaseModel):
+    mimetype: str | None = Field(default=None, description="Mime type of the data")
+    data_size: int | None = Field(default=None, description="Size of the data in bytes")
+    last_modified: int | None = Field(
+        default=None,
+        description="Last modified timestamp(seconds) of the data",
+    )
+
+
 class ConvertResult(BaseModel):
     title: str | None = Field(default=None)
     markdown: str
+
+
+class ConvertResponse(BaseModel):
+    metadata: StreamMetadata | None = Field(
+        default=None,
+        description="Metadata of the data",
+    )
+    result: ConvertResult | None = Field(default=None, description="Converted result")

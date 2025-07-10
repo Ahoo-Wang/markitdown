@@ -1,18 +1,20 @@
 from email.utils import parsedate_to_datetime
 from enum import Enum
-from typing import Annotated, Tuple
+from typing import Annotated, Any
 
 import requests
 from fastapi import Body, APIRouter
+from pydantic import Field
 from requests.utils import CaseInsensitiveDict
 
+from markitdown_api.ApiConverter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
     ConvertResult,
     MarkdownResponse,
+    ConvertResponse,
+    StreamMetadata,
 )
-from markitdown_api.commons import build_markitdown
-from pydantic import Field, BaseModel
 
 TAG = "Convert Http"
 
@@ -43,26 +45,7 @@ class ConvertHttpRequest(ConvertRequest):
     )
 
 
-class HttpResponseMetadata(BaseModel):
-    mimetype: str | None = Field(default=None, description="Mime type of the data")
-    data_size: int | None = Field(default=None, description="Size of the data in bytes")
-    last_modified: int | None = Field(
-        default=None,
-        description="Last modified timestamp(seconds) of the data",
-    )
-
-
-class ConvertHttpResponse(ConvertResult):
-    metadata: HttpResponseMetadata = Field(
-        description="Metadata of the http response",
-    )
-
-
-router = APIRouter(prefix="/convert/http", tags=[TAG])
-
-
-def __parse_content_type(headers: CaseInsensitiveDict[str]) -> str | None:
-    content_type = headers.get("Content-Type")
+def _parse_mime_type_from_content_type(content_type: str) -> str | None:
     if not content_type:
         return None
 
@@ -70,7 +53,7 @@ def __parse_content_type(headers: CaseInsensitiveDict[str]) -> str | None:
     return parts.pop(0).strip()
 
 
-def __parse_last_modified_timestamp(headers: CaseInsensitiveDict[str]) -> int | None:
+def _parse_last_modified_timestamp(headers: CaseInsensitiveDict[str]) -> int | None:
     last_modified_str = headers.get("Last-Modified")
     if not last_modified_str:
         return None
@@ -78,36 +61,36 @@ def __parse_last_modified_timestamp(headers: CaseInsensitiveDict[str]) -> int | 
     return int(last_modified.timestamp())
 
 
-def _convert_http(request: ConvertHttpRequest) -> ConvertHttpResponse:
-    response = requests.request(
-        request.method.value, request.url, headers=request.headers
-    )
-    data_size = len(response.content)
-    last_modified = __parse_last_modified_timestamp(response.headers)
-    mimetype = __parse_content_type(response.headers)
-    metadata = HttpResponseMetadata(
-        data_size=data_size, mimetype=mimetype, last_modified=last_modified
-    )
-    convert_result = build_markitdown(request.llm).convert_response(
-        response,
-        llm_prompt=request.get_llm_prompt(),
-        keep_data_uris=request.keep_data_uris,
-    )
+class HttpApiConverter(ApiConverter):
+    def __init__(self, request: ConvertHttpRequest):
+        super().__init__(request)
 
-    return ConvertHttpResponse(
-        title=convert_result.title,
-        markdown=convert_result.markdown,
-        metadata=metadata,
-    )
+    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+        response = requests.request(
+            self.request.method.value, self.request.url, headers=self.request.headers
+        )
+        data_size = len(response.content)
+        last_modified = _parse_last_modified_timestamp(response.headers)
+        mimetype = _parse_mime_type_from_content_type(
+            response.headers.get("Content-Type")
+        )
+        self.metadata = StreamMetadata(
+            data_size=data_size, mimetype=mimetype, last_modified=last_modified
+        )
+        result = self.markitdown.convert_response(response, **kwargs)
+        return ConvertResult(markdown=result.markdown, title=result.title)
 
 
-@router.post(path="", response_model=ConvertHttpResponse)
+router = APIRouter(prefix="/convert/http", tags=[TAG])
+
+
+@router.post(path="", response_model=ConvertResponse)
 async def convert_http(
     request: Annotated[
         ConvertHttpRequest, Body(examples=[{"url": "https://wow.ahoo.me/"}])
     ]
 ):
-    return _convert_http(request)
+    return HttpApiConverter(request).convert()
 
 
 @router.post(path="/markdown", response_class=MarkdownResponse)
@@ -116,4 +99,4 @@ async def convert_uri_markdown(
         ConvertHttpRequest, Body(examples=[{"url": "https://wow.ahoo.me/"}])
     ]
 ):
-    return _convert_http(request).markdown
+    return HttpApiConverter(request).convert().result.markdown
