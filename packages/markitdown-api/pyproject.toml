@@ -31,7 +31,8 @@ dependencies = [
     "markitdown[all] @ file:../markitdown",
     "fastapi[standard]>=0.115.14",
     "uvicorn[standard]>=0.35.0",
-    "openai>=1.93.0"
+    "openai>=1.93.0",
+    "oss2"
 ]
 
 [project.scripts]

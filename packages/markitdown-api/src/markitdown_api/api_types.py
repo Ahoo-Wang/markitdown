@@ -12,8 +12,14 @@ class LlmOptions(BaseModel):
     prompt: str = get_llm_prompt()
 
 
+class StorageOptions(BaseModel):
+    type: str = Field(default="oss", description="Storage type")
+    key: str | None = Field(default=None, description="Storage key")
+
+
 class ConvertRequest(BaseModel):
     llm: LlmOptions | None = Field(default=None, description="LLM options")
+    storage: StorageOptions | None = Field(default=None, description="Storage options")
     keep_data_uris: bool = Field(
         default=False,
         description="If keep_data_uris is True, use base64 encoding for images",
@@ -41,9 +47,20 @@ class ConvertResult(BaseModel):
     markdown: str
 
 
+class StorageResult(BaseModel):
+    endpoint: str = Field(description="Storage endpoint")
+    region: str = Field(description="Storage region")
+    bucket: str = Field(description="Storage bucket")
+    key: str = Field(description="Storage key")
+
+
 class ConvertResponse(BaseModel):
     metadata: StreamMetadata | None = Field(
         default=None,
         description="Metadata of the data",
     )
     result: ConvertResult | None = Field(default=None, description="Converted result")
+    storage: StorageResult | None = Field(
+        default=None,
+        description="Storage result",
+    )
