@@ -51,10 +51,12 @@ class OssStorager(Storager):
         result: ConvertResult,
         **kwargs: Any,
     ) -> StorageResult:
+        headers = _put_object_headers
+        if result.title:
+            headers = _put_object_headers.copy()
+            headers["x-oss-meta-title"] = result.title
         self.bucket.put_object(
-            options.key,
-            result.markdown.encode(_utf8_charset),
-            headers=_put_object_headers,
+            options.key, result.markdown.encode(_utf8_charset), headers=headers
         )
         return StorageResult(
             endpoint=self.endpoint,
