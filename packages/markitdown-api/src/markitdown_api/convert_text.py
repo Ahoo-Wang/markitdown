@@ -1,11 +1,17 @@
 from io import BytesIO
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import Field
 
 from markitdown import StreamInfo
-from markitdown_api.api_types import ConvertRequest, ConvertResult
-from markitdown_api.commons import build_markitdown
+from markitdown_api.ApiConverter import ApiConverter
+from markitdown_api.api_types import (
+    ConvertRequest,
+    ConvertResult,
+    StreamMetadata,
+    ConvertResponse,
+)
 
 TAG = "Convert Text"
 
@@ -17,23 +23,32 @@ class ConvertTextRequest(ConvertRequest):
     )
 
 
+class TextApiConverter(ApiConverter):
+    def __init__(self, request: ConvertTextRequest):
+        super().__init__(request)
+
+    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+        text_binary = self.request.text.encode("utf-8")
+        self.metadata = StreamMetadata(
+            mimetype=self.request.mimetype,
+            data_size=len(text_binary),
+        )
+        binary_io = BytesIO(text_binary)
+
+        stream_info = StreamInfo(mimetype=self.request.mimetype)
+        result = self.markitdown.convert_stream(
+            stream=binary_io, stream_info=stream_info, **kwargs
+        )
+
+        return ConvertResult(markdown=result.markdown, title=result.title)
+
+
 router = APIRouter(
     prefix="/convert/text",
     tags=[TAG],
 )
 
 
-@router.post(path="", response_model=ConvertResult)
+@router.post(path="", response_model=ConvertResponse)
 async def convert_text(request: ConvertTextRequest):
-    text_binary = request.text.encode("utf-8")
-    binary_io = BytesIO(text_binary)
-
-    stream_info = StreamInfo(mimetype=request.mimetype)
-    convert_result = build_markitdown(request.llm).convert_stream(
-        stream=binary_io,
-        stream_info=stream_info,
-        llm_prompt=request.get_llm_prompt(),
-        keep_data_uris=request.keep_data_uris,
-    )
-
-    return {"title": convert_result.title, "markdown": convert_result.markdown}
+    return TextApiConverter(request).convert()
