@@ -10,6 +10,13 @@ from markitdown_api.commons import build_markitdown
 from markitdown_api.storages.storager_registrar import StoragerRegistrar
 
 
+def remove_all_zw_chars(text: str) -> str:
+    zw_chars = ["\u200B", "\u200C", "\u200D", "\uFEFF"]
+    for char in zw_chars:
+        text = text.replace(char, "")
+    return text
+
+
 class ApiConverter:
     def __init__(self, request: ConvertRequest):
         self.metadata: StreamMetadata | None = None
@@ -21,7 +28,11 @@ class ApiConverter:
             llm_prompt=self.request.get_llm_prompt(),
             keep_data_uris=self.request.keep_data_uris,
         )
-        result = converted_result
+
+        result = ConvertResult(
+            title=converted_result.title,
+            markdown=remove_all_zw_chars(converted_result.markdown),
+        )
         storage_result = None
         if self.request.storage:
             storage_result = StoragerRegistrar().storage(
