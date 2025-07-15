@@ -38,7 +38,7 @@ class ApiConverter:
             storage_result = StoragerRegistrar().storage(
                 self.request.storage, self.metadata, converted_result
             )
-            result = None
+            result.markdown = ""
 
         return ConvertResponse(
             metadata=self.metadata,
