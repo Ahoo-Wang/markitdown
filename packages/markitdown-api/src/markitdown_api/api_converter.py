@@ -27,6 +27,7 @@ class ApiConverter:
         converted_result = self._internal_convert(
             llm_prompt=self.request.get_llm_prompt(),
             keep_data_uris=self.request.keep_data_uris,
+            selector=self.request.html.selector if self.request.html else None,
         )
         markdown = remove_all_zw_chars(converted_result.markdown)
         result = ConvertResult(
