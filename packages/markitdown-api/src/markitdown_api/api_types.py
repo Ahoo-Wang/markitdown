@@ -17,9 +17,16 @@ class StorageOptions(BaseModel):
     key: str | None = Field(default=None, description="Storage key")
 
 
+class HtmlOptions(BaseModel):
+    selector: str | None = Field(
+        default=None, description="A string containing a CSS selector"
+    )
+
+
 class ConvertRequest(BaseModel):
     llm: LlmOptions | None = Field(default=None, description="LLM options")
     storage: StorageOptions | None = Field(default=None, description="Storage options")
+    html: HtmlOptions | None = Field(default=None, description="HTML options")
     keep_data_uris: bool = Field(
         default=False,
         description="If keep_data_uris is True, use base64 encoding for images",

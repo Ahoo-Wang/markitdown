@@ -44,9 +44,20 @@ class HtmlConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> DocumentConverterResult:
+        selector = kwargs.pop("selector", None)
         # Parse the stream
         encoding = "utf-8" if stream_info.charset is None else stream_info.charset
         soup = BeautifulSoup(file_stream, "html.parser", from_encoding=encoding)
+
+        title = None if soup.title is None else soup.title.string
+        if selector:
+            nodes = soup.select(selector)
+            if not nodes:
+                raise ValueError(f"No elements match selector: {selector}")
+            scoped = BeautifulSoup("", "html.parser")
+            for node in nodes:
+                scoped.append(node)
+            soup = scoped
 
         # Remove javascript and style blocks
         for script in soup(["script", "style"]):
@@ -67,11 +78,11 @@ class HtmlConverter(DocumentConverter):
 
         return DocumentConverterResult(
             markdown=webpage_text,
-            title=None if soup.title is None else soup.title.string,
+            title=title,
         )
 
     def convert_string(
-        self, html_content: str, *, url: Optional[str] = None, **kwargs
+        self, html_content: str, *, url: Optional[str] = None, **kwargs: Any
     ) -> DocumentConverterResult:
         """
         Non-standard convenience method to convert a string to markdown.
