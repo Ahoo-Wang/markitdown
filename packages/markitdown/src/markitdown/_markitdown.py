@@ -169,9 +169,9 @@ class MarkItDown:
             # Register converters for successful browsing operations
             # Later registrations are tried first / take higher priority than earlier registrations
             # To this end, the most specific converters should appear below the most generic converters
-            self.register_converter(
-                PlainTextConverter(), priority=PRIORITY_GENERIC_FILE_FORMAT
-            )
+            # self.register_converter(
+            #     PlainTextConverter(), priority=PRIORITY_GENERIC_FILE_FORMAT
+            # )
             self.register_converter(
                 ZipConverter(markitdown=self), priority=PRIORITY_GENERIC_FILE_FORMAT
             )
