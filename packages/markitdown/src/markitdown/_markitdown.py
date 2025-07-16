@@ -9,7 +9,7 @@ import traceback
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any, List, Dict, Optional, Union, BinaryIO
+from typing import Any, List, Dict, Optional, Union, BinaryIO, Type
 from urllib.parse import urlparse
 from warnings import warn
 
@@ -26,6 +26,7 @@ from ._exceptions import (
 from ._stream_info import StreamInfo
 from ._uri_utils import parse_data_uri, file_uri_to_path
 from .converters import (
+    PlainTextConverter,
     HtmlConverter,
     RssConverter,
     WikipediaConverter,
@@ -53,7 +54,6 @@ PRIORITY_SPECIFIC_FILE_FORMAT = (
 PRIORITY_GENERIC_FILE_FORMAT = (
     10.0  # Near catch-all converters for mimetypes like text/*, etc.
 )
-
 
 _plugins: Union[None, List[Any]] = None  # If None, plugins have not been loaded yet.
 
@@ -165,10 +165,9 @@ class MarkItDown:
             # Register converters for successful browsing operations
             # Later registrations are tried first / take higher priority than earlier registrations
             # To this end, the most specific converters should appear below the most generic converters
-
-            # self.register_converter(
-            #     PlainTextConverter(), priority=PRIORITY_GENERIC_FILE_FORMAT
-            # )
+            self.register_converter(
+                PlainTextConverter(), priority=PRIORITY_GENERIC_FILE_FORMAT
+            )
             self.register_converter(
                 ZipConverter(markitdown=self), priority=PRIORITY_GENERIC_FILE_FORMAT
             )
@@ -654,6 +653,14 @@ class MarkItDown:
         self._converters.insert(
             0, ConverterRegistration(converter=converter, priority=priority)
         )
+
+    def unregister_converter(self, converter_type: Type[DocumentConverter]):
+        """Unregister a converter."""
+        new_converters = []
+        for cr in self._converters:
+            if not isinstance(cr.converter, converter_type):
+                new_converters.append(cr)
+        self._converters = new_converters
 
     def _get_stream_info_guesses(
         self, file_stream: BinaryIO, base_guess: StreamInfo
