@@ -1,26 +1,31 @@
+import codecs
+import io
 import mimetypes
 import os
 import re
-import sys
 import shutil
+import sys
 import traceback
-import io
 from dataclasses import dataclass
 from importlib.metadata import entry_points
-from typing import Any, List, Dict, Optional, Union, BinaryIO
 from pathlib import Path
+from typing import Any, List, Dict, Optional, Union, BinaryIO
 from urllib.parse import urlparse
 from warnings import warn
-import requests
-import magika
-import charset_normalizer
-import codecs
 
+import charset_normalizer
+import magika
+import requests
+
+from ._base_converter import DocumentConverter, DocumentConverterResult
+from ._exceptions import (
+    FileConversionException,
+    UnsupportedFormatException,
+    FailedConversionAttempt,
+)
 from ._stream_info import StreamInfo
 from ._uri_utils import parse_data_uri, file_uri_to_path
-
 from .converters import (
-    PlainTextConverter,
     HtmlConverter,
     RssConverter,
     WikipediaConverter,
@@ -40,15 +45,6 @@ from .converters import (
     DocumentIntelligenceConverter,
     CsvConverter,
 )
-
-from ._base_converter import DocumentConverter, DocumentConverterResult
-
-from ._exceptions import (
-    FileConversionException,
-    UnsupportedFormatException,
-    FailedConversionAttempt,
-)
-
 
 # Lower priority values are tried first.
 PRIORITY_SPECIFIC_FILE_FORMAT = (
@@ -169,6 +165,7 @@ class MarkItDown:
             # Register converters for successful browsing operations
             # Later registrations are tried first / take higher priority than earlier registrations
             # To this end, the most specific converters should appear below the most generic converters
+
             # self.register_converter(
             #     PlainTextConverter(), priority=PRIORITY_GENERIC_FILE_FORMAT
             # )
