@@ -4,6 +4,7 @@ from typing import Optional
 from openai import OpenAI
 
 from markitdown import MarkItDown
+from markitdown.converters import PlainTextConverter
 from markitdown_api.api_types import LlmOptions
 
 
@@ -30,9 +31,11 @@ def build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
     if api_key:
         llm_client = OpenAI(base_url=base_url, api_key=api_key)
 
-    return MarkItDown(
+    markitdown = MarkItDown(
         enable_plugins=True,
         enable_builtins=True,
         llm_client=llm_client,
         llm_model=llm_model,
     )
+    markitdown.unregister_converter(PlainTextConverter)
+    return markitdown
