@@ -28,10 +28,10 @@ class ApiConverter:
             llm_prompt=self.request.get_llm_prompt(),
             keep_data_uris=self.request.keep_data_uris,
         )
-
+        markdown = remove_all_zw_chars(converted_result.markdown)
         result = ConvertResult(
             title=converted_result.title,
-            markdown=remove_all_zw_chars(converted_result.markdown),
+            markdown=markdown,
         )
         storage_result = None
         if self.request.storage:
