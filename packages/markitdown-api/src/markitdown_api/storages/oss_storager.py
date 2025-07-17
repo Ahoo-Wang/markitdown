@@ -9,12 +9,13 @@ from markitdown_api.api_types import (
     ConvertResult,
     StorageOptions,
     StorageResult,
+    TEXT_MARKDOWN_MIME_TYPE,
 )
 from markitdown_api.storages.storager import Storager
 
 _utf8_charset = "utf-8"
 _put_object_headers: oss2.CaseInsensitiveDict = oss2.CaseInsensitiveDict(
-    {"Content-Type": f"text/markdown; charset={_utf8_charset}"}
+    {"Content-Type": f"{TEXT_MARKDOWN_MIME_TYPE}; charset={_utf8_charset}"}
 )
 
 
@@ -53,7 +54,13 @@ class OssStorager(Storager):
         result: ConvertResult,
         **kwargs: Any,
     ) -> StorageResult:
-        headers = _put_object_headers.copy()
+        mimetype = TEXT_MARKDOWN_MIME_TYPE
+        if result.mimetype:
+            mimetype = result.mimetype
+
+        headers = oss2.CaseInsensitiveDict(
+            {"Content-Type": f"{mimetype}; charset={_utf8_charset}"}
+        )
         if result.title:
             headers["x-oss-meta-title"] = result.title.encode(_utf8_charset)
         self.bucket.put_object(

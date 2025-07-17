@@ -48,8 +48,11 @@ class ConvertRequest(BaseModel):
         return self.llm.prompt if self.llm else ""
 
 
+TEXT_MARKDOWN_MIME_TYPE = "text/markdown"
+
+
 class MarkdownResponse(Response):
-    media_type = "text/markdown"
+    media_type = TEXT_MARKDOWN_MIME_TYPE
 
 
 class StreamMetadata(BaseModel):
@@ -63,6 +66,9 @@ class StreamMetadata(BaseModel):
 
 class ConvertResult(BaseModel):
     title: str | None = Field(default=None)
+    mimetype: str | None = Field(
+        default=TEXT_MARKDOWN_MIME_TYPE, description="Mime type of the converted data"
+    )
     markdown: str
 
 

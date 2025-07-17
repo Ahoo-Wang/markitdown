@@ -40,11 +40,11 @@ class FileApiConverter(ApiConverter):
             mimetype=self.metadata.mimetype, filename=self.request.file.filename
         )
         with BufferedReader(self.request.file.file) as buffered_reader:
-            convert_result = self.markitdown.convert_stream(
+            result = self.markitdown.convert_stream(
                 buffered_reader, stream_info=stream_info, **kwargs
             )
             return ConvertResult(
-                title=convert_result.title, markdown=convert_result.markdown
+                title=result.title, markdown=result.markdown, mimetype=result.mimetype
             )
 
 
