@@ -13,6 +13,7 @@ class DocumentConverterResult:
         *,
         title: Optional[str] = None,
         mimetype: Optional[str] = None,
+        converter: Optional[any] = None,
         failed_attempts: List[FailedConversionAttempt] = None,
     ):
         """
@@ -28,6 +29,7 @@ class DocumentConverterResult:
         self.markdown = markdown
         self.title = title
         self.mimetype = mimetype
+        self.converter = converter
         self.failed_attempts = failed_attempts
 
     @property

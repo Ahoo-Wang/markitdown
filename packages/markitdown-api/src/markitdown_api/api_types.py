@@ -69,6 +69,7 @@ class StreamMetadata(BaseModel):
 
 
 class ConvertResult(BaseModel):
+    converter: str | None = Field(default=None, description="Converter name")
     title: str | None = Field(default=None)
     mimetype: str | None = Field(
         default=TEXT_MARKDOWN_MIME_TYPE, description="Mime type of the converted data"

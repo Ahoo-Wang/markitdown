@@ -604,6 +604,7 @@ class MarkItDown:
                     )
                     res.text_content = re.sub(r"\n{3,}", "\n\n", res.text_content)
                     res.failed_attempts = failed_attempts
+                    res.converter = converter
                     return res
 
         # If we got this far without success, report any exceptions
