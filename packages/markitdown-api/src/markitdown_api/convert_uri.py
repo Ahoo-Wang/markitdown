@@ -33,7 +33,9 @@ class UriApiConverter(ApiConverter):
 
     def _internal_convert(self, **kwargs: Any) -> ConvertResult:
         result = self.markitdown.convert_uri(self.request.uri, **kwargs)
-        return ConvertResult(title=result.title, markdown=result.markdown)
+        return ConvertResult(
+            title=result.title, markdown=result.markdown, mimetype=result.mimetype
+        )
 
 
 router = APIRouter(prefix="/convert/uri", tags=[TAG])

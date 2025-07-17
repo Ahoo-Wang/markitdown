@@ -10,6 +10,7 @@ class DocumentConverterResult:
         markdown: str,
         *,
         title: Optional[str] = None,
+        mimetype: Optional[str] = None,
     ):
         """
         Initialize the DocumentConverterResult.
@@ -23,6 +24,7 @@ class DocumentConverterResult:
         """
         self.markdown = markdown
         self.title = title
+        self.mimetype = mimetype
 
     @property
     def text_content(self) -> str:

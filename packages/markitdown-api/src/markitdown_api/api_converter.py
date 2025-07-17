@@ -34,6 +34,8 @@ class ApiConverter:
             title=converted_result.title,
             markdown=markdown,
         )
+        if converted_result.mimetype:
+            result.mimetype = converted_result.mimetype
         storage_result = None
         if self.request.storage:
             storage_result = StoragerRegistrar().storage(

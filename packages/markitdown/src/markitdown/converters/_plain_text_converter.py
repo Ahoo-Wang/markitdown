@@ -68,4 +68,6 @@ class PlainTextConverter(DocumentConverter):
         else:
             text_content = str(from_bytes(file_stream.read()).best())
 
-        return DocumentConverterResult(markdown=text_content)
+        return DocumentConverterResult(
+            markdown=text_content, mimetype=stream_info.mimetype
+        )

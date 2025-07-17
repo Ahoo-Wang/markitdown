@@ -78,7 +78,9 @@ class HttpApiConverter(ApiConverter):
             data_size=data_size, mimetype=mimetype, last_modified=last_modified
         )
         result = self.markitdown.convert_response(response, **kwargs)
-        return ConvertResult(markdown=result.markdown, title=result.title)
+        return ConvertResult(
+            markdown=result.markdown, title=result.title, mimetype=result.mimetype
+        )
 
 
 router = APIRouter(prefix="/convert/http", tags=[TAG])

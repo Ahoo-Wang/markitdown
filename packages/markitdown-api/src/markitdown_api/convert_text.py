@@ -40,7 +40,9 @@ class TextApiConverter(ApiConverter):
             stream=binary_io, stream_info=stream_info, **kwargs
         )
 
-        return ConvertResult(markdown=result.markdown, title=result.title)
+        return ConvertResult(
+            markdown=result.markdown, title=result.title, mimetype=result.mimetype
+        )
 
 
 router = APIRouter(
