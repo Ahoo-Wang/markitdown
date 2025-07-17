@@ -1,4 +1,3 @@
-import sys
 from typing import Any
 
 from markitdown import DocumentConverterResult
