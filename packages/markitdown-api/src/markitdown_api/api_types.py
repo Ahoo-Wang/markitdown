@@ -1,3 +1,5 @@
+from typing import List
+
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 from markitdown._llm_utils import get_llm_prompt
@@ -23,10 +25,20 @@ class HtmlOptions(BaseModel):
     )
 
 
+class ConverterOptions(BaseModel):
+    exclude: List[str] = Field(
+        default=[],
+        description="List of converter types to exclude (e.g. ['PlainTextConverter', 'DocxConverter'])",
+    )
+
+
 class ConvertRequest(BaseModel):
     llm: LlmOptions | None = Field(default=None, description="LLM options")
     storage: StorageOptions | None = Field(default=None, description="Storage options")
     html: HtmlOptions | None = Field(default=None, description="HTML options")
+    converter: ConverterOptions | None = Field(
+        default=None, description="Converter options"
+    )
     keep_data_uris: bool = Field(
         default=False,
         description="If keep_data_uris is True, use base64 encoding for images",

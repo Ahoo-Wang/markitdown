@@ -654,12 +654,18 @@ class MarkItDown:
             0, ConverterRegistration(converter=converter, priority=priority)
         )
 
-    def unregister_converter(self, converter_type: Type[DocumentConverter]):
-        """Unregister a converter."""
+    def unregister_converter(self, converter_type: Union[Type[DocumentConverter], str]):
+        """Unregister a converter by type or class name."""
         new_converters = []
         for cr in self._converters:
-            if not isinstance(cr.converter, converter_type):
-                new_converters.append(cr)
+            if isinstance(converter_type, str):
+                # String matching: compare with class name
+                if cr.converter.__class__.__name__ != converter_type:
+                    new_converters.append(cr)
+            else:
+                # Type matching
+                if not isinstance(cr.converter, converter_type):
+                    new_converters.append(cr)
         self._converters = new_converters
 
     def _get_stream_info_guesses(

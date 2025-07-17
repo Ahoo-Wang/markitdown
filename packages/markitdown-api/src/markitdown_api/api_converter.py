@@ -21,7 +21,7 @@ class ApiConverter:
     def __init__(self, request: ConvertRequest):
         self.metadata: StreamMetadata | None = None
         self.request = request
-        self.markitdown = build_markitdown(request.llm)
+        self.markitdown = build_markitdown(request)
 
     def convert(self) -> ConvertResponse:
         converted_result = self._internal_convert(
