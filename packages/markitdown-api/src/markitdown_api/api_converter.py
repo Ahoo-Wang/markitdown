@@ -1,3 +1,4 @@
+import sys
 from typing import Any
 
 from markitdown import DocumentConverterResult
@@ -7,7 +8,7 @@ from markitdown_api.api_types import (
     ConvertResponse,
     StreamMetadata,
     FailedAttempt,
-    FailedAttempts,
+    FailedResult,
 )
 from markitdown_api.commons import build_markitdown
 from markitdown_api.storages.storager_registrar import StoragerRegistrar
@@ -27,7 +28,7 @@ class ApiConverter:
         self.markitdown = build_markitdown(request)
 
     def convert(self) -> ConvertResponse:
-        converted_result = self._internal_convert(
+        converted_result: DocumentConverterResult = self._internal_convert(
             llm_prompt=self.request.get_llm_prompt(),
             keep_data_uris=self.request.keep_data_uris,
             selector=self.request.html.selector if self.request.html else None,
@@ -47,18 +48,28 @@ class ApiConverter:
             result.markdown = ""
         failed_attempts = None
         if converted_result.failed_attempts:
-            failed_attempts = [
-                FailedAttempt(
-                    converter=attempt.converter.__class__.__name__,
-                    error_msg=str(attempt.exc_info),
+            failed_attempts = []
+            for attempt in converted_result.failed_attempts:
+                converter = type(attempt.converter).__name__
+                error_type = ""
+                error_msg = ""
+                if attempt.exc_info:
+                    error_type = attempt.exc_info[0].__name__
+                    error_msg = str(attempt.exc_info[1])
+                failed_attempts.append(
+                    FailedAttempt(
+                        converter=converter, error_type=error_type, error_msg=error_msg
+                    )
                 )
-                for attempt in converted_result.failed_attempts
-            ]
+
+        failed_result = None
+        if failed_attempts:
+            failed_result = FailedResult(attempts=failed_attempts)
         return ConvertResponse(
             metadata=self.metadata,
             result=result,
             storage=storage_result,
-            failed=FailedAttempts(attempts=failed_attempts),
+            failed=failed_result,
         )
 
     def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
