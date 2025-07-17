@@ -38,6 +38,8 @@ class ApiConverter:
             title=converted_result.title,
             markdown=markdown,
         )
+        if converted_result.converter:
+            result.converter = type(converted_result.converter).__name__
         if converted_result.mimetype:
             result.mimetype = converted_result.mimetype
 
