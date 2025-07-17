@@ -43,6 +43,10 @@ class ConvertRequest(BaseModel):
         default=False,
         description="If keep_data_uris is True, use base64 encoding for images",
     )
+    strict: bool = Field(
+        default=False,
+        description="If Strict is True, use strict mode to convert markdown",
+    )
 
     def get_llm_prompt(self) -> str:
         return self.llm.prompt if self.llm else ""
