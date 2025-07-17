@@ -4,8 +4,7 @@ from typing import Optional
 from openai import OpenAI
 
 from markitdown import MarkItDown
-from markitdown.converters import PlainTextConverter
-from markitdown_api.api_types import LlmOptions
+from markitdown_api.api_types import LlmOptions, ConvertRequest
 
 
 def is_blank(s: str) -> bool:
@@ -18,7 +17,7 @@ def blank_then_none(s: str) -> str | None:
     return s
 
 
-def build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
+def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
     base_url = api_key = llm_client = llm_model = None
     if llm_options:
         base_url = blank_then_none(llm_options.open_ai_base_url)
@@ -37,5 +36,15 @@ def build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
         llm_client=llm_client,
         llm_model=llm_model,
     )
-    markitdown.unregister_converter(PlainTextConverter)
+    return markitdown
+
+
+def build_markitdown(request: ConvertRequest) -> MarkItDown:
+    markitdown = _build_markitdown(request.llm)
+    converter_options = request.converter
+    if not converter_options:
+        return markitdown
+
+    for converter in converter_options.exclude:
+        markitdown.unregister_converter(converter)
     return markitdown
