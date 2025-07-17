@@ -1,10 +1,13 @@
 from typing import Any
 
+from markitdown import DocumentConverterResult
 from markitdown_api.api_types import (
     ConvertRequest,
     ConvertResult,
     ConvertResponse,
     StreamMetadata,
+    FailedAttempt,
+    FailedAttempts,
 )
 from markitdown_api.commons import build_markitdown
 from markitdown_api.storages.storager_registrar import StoragerRegistrar
@@ -39,15 +42,24 @@ class ApiConverter:
         storage_result = None
         if self.request.storage:
             storage_result = StoragerRegistrar().storage(
-                self.request.storage, self.metadata, converted_result
+                self.request.storage, self.metadata, result
             )
             result.markdown = ""
-
+        failed_attempts = None
+        if converted_result.failed_attempts:
+            failed_attempts = [
+                FailedAttempt(
+                    converter=attempt.converter.__class__.__name__,
+                    error_msg=str(attempt.exc_info),
+                )
+                for attempt in converted_result.failed_attempts
+            ]
         return ConvertResponse(
             metadata=self.metadata,
             result=result,
             storage=storage_result,
+            failed=FailedAttempts(attempts=failed_attempts),
         )
 
-    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+    def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
         raise NotImplementedError

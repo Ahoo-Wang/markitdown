@@ -3,10 +3,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, UploadFile, File, Form
 
-from markitdown import StreamInfo
+from markitdown import StreamInfo, DocumentConverterResult
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
-    ConvertResult,
     LlmOptions,
     MarkdownResponse,
     ConvertRequest,
@@ -31,7 +30,7 @@ class FileApiConverter(ApiConverter):
     def __init__(self, request: ConvertFileRequest):
         super().__init__(request)
 
-    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+    def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
         self.metadata = StreamMetadata(
             data_size=self.request.file.size,
             mimetype=_parse_mime_type_from_content_type(self.request.file.content_type),
@@ -40,11 +39,8 @@ class FileApiConverter(ApiConverter):
             mimetype=self.metadata.mimetype, filename=self.request.file.filename
         )
         with BufferedReader(self.request.file.file) as buffered_reader:
-            result = self.markitdown.convert_stream(
+            return self.markitdown.convert_stream(
                 buffered_reader, stream_info=stream_info, **kwargs
-            )
-            return ConvertResult(
-                title=result.title, markdown=result.markdown, mimetype=result.mimetype
             )
 
 

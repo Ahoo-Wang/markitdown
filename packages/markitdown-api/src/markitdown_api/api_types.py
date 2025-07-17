@@ -79,13 +79,28 @@ class StorageResult(BaseModel):
     key: str = Field(description="Storage key")
 
 
+class FailedAttempt(BaseModel):
+    converter: str = Field(description="Converter name")
+    error_msg: str = Field(description="Exception info")
+
+
+class FailedAttempts(BaseModel):
+    attempts: List[FailedAttempt] = Field(default=[], description="Failed attempts")
+
+
 class ConvertResponse(BaseModel):
     metadata: StreamMetadata | None = Field(
         default=None,
         description="Metadata of the data",
     )
     result: ConvertResult | None = Field(default=None, description="Converted result")
-    storage: StorageResult | None = Field(
+    storage: StorageResult | None = (
+        Field(
+            default=None,
+            description="Storage result",
+        ),
+    )
+    failed: FailedAttempts | None = Field(
         default=None,
-        description="Storage result",
+        description="Failed attempts",
     )

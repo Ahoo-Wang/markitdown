@@ -3,10 +3,10 @@ from typing import Annotated, Any
 from fastapi import Query, Body, APIRouter
 from pydantic import Field
 
+from markitdown import DocumentConverterResult
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
-    ConvertResult,
     MarkdownResponse,
     ConvertResponse,
 )
@@ -31,11 +31,8 @@ class UriApiConverter(ApiConverter):
     def __init__(self, request: ConvertUriRequest):
         super().__init__(request)
 
-    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
-        result = self.markitdown.convert_uri(self.request.uri, **kwargs)
-        return ConvertResult(
-            title=result.title, markdown=result.markdown, mimetype=result.mimetype
-        )
+    def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
+        return self.markitdown.convert_uri(self.request.uri, **kwargs)
 
 
 router = APIRouter(prefix="/convert/uri", tags=[TAG])
