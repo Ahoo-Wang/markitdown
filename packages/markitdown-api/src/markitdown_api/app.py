@@ -3,6 +3,7 @@ from requests import HTTPError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from markitdown import FileConversionException
 from markitdown.__about__ import __version__ as markitdown_version
 from markitdown_api import (
     convert_uri,
@@ -30,22 +31,26 @@ app.include_router(convert_file.router)
 app.include_router(convert_http.router)
 
 
+def __error_content(exc: Exception):
+    return {"detail": str(exc)}
+
+
 async def file_not_found_handler(request: Request, exc: FileNotFoundError):
-    return JSONResponse(status_code=404, content={"detail": str(exc)})
+    return JSONResponse(status_code=404, content=__error_content(exc))
 
 
 async def value_error_handler(request: Request, exc: ValueError):
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def http_error_handler(request: Request, exc: HTTPError):
     return JSONResponse(
-        status_code=exc.response.status_code, content={"detail": str(exc)}
+        status_code=exc.response.status_code, content=__error_content(exc)
     )
 
 
 async def type_error_handler(request: Request, exc: TypeError):
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def key_error_handler(request: Request, exc: KeyError):
@@ -54,12 +59,16 @@ async def key_error_handler(request: Request, exc: KeyError):
     )
 
 
+async def file_conversion_handler(request: Request, exc: FileConversionException):
+    return JSONResponse(status_code=400, content=__error_content(exc))
+
+
 async def index_error_handler(request: Request, exc: IndexError):
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def global_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(status_code=500, content={"detail": str(exc)})
+    return JSONResponse(status_code=500, content=__error_content(exc))
 
 
 app.add_exception_handler(FileNotFoundError, file_not_found_handler)
@@ -68,4 +77,5 @@ app.add_exception_handler(HTTPError, http_error_handler)
 app.add_exception_handler(TypeError, type_error_handler)
 app.add_exception_handler(KeyError, key_error_handler)
 app.add_exception_handler(IndexError, index_error_handler)
+app.add_exception_handler(FileConversionException, file_conversion_handler)
 app.add_exception_handler(Exception, global_exception_handler)

@@ -1,6 +1,6 @@
 from typing import Any
 
-from markitdown import DocumentConverterResult
+from markitdown import DocumentConverterResult, FileConversionException
 from markitdown_api.api_types import (
     ConvertRequest,
     ConvertResult,
@@ -8,6 +8,7 @@ from markitdown_api.api_types import (
     StreamMetadata,
     FailedAttempt,
     FailedResult,
+    TEXT_MARKDOWN_MIME_TYPE,
 )
 from markitdown_api.commons import build_markitdown
 from markitdown_api.storages.storager_registrar import StoragerRegistrar
@@ -39,6 +40,9 @@ class ApiConverter:
         )
         if converted_result.mimetype:
             result.mimetype = converted_result.mimetype
+
+        if self.request.strict and converted_result.mimetype != TEXT_MARKDOWN_MIME_TYPE:
+            raise FileConversionException(attempts=converted_result.failed_attempts)
         storage_result = None
         if self.request.storage:
             storage_result = StoragerRegistrar().storage(
