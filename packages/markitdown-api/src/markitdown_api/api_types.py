@@ -81,10 +81,11 @@ class StorageResult(BaseModel):
 
 class FailedAttempt(BaseModel):
     converter: str = Field(description="Converter name")
+    error_type: str = Field(description="Exception type")
     error_msg: str = Field(description="Exception info")
 
 
-class FailedAttempts(BaseModel):
+class FailedResult(BaseModel):
     attempts: List[FailedAttempt] = Field(default=[], description="Failed attempts")
 
 
@@ -100,7 +101,7 @@ class ConvertResponse(BaseModel):
             description="Storage result",
         ),
     )
-    failed: FailedAttempts | None = Field(
+    failed: FailedResult | None = Field(
         default=None,
         description="Failed attempts",
     )
