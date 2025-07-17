@@ -86,7 +86,7 @@ class StorageResult(BaseModel):
 class FailedAttempt(BaseModel):
     converter: str = Field(description="Converter name")
     error_type: str = Field(description="Exception type")
-    error_msg: str = Field(description="Exception info")
+    error_msg: str = Field(description="Exception msg")
 
 
 class FailedResult(BaseModel):
@@ -99,11 +99,9 @@ class ConvertResponse(BaseModel):
         description="Metadata of the data",
     )
     result: ConvertResult | None = Field(default=None, description="Converted result")
-    storage: StorageResult | None = (
-        Field(
-            default=None,
-            description="Storage result",
-        ),
+    storage: StorageResult | None = Field(
+        default=None,
+        description="Storage result",
     )
     failed: FailedResult | None = Field(
         default=None,
