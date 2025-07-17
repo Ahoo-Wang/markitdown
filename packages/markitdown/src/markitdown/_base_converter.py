@@ -1,4 +1,6 @@
-from typing import Any, BinaryIO, Optional
+from typing import Any, BinaryIO, Optional, List
+
+from ._exceptions import FailedConversionAttempt
 from ._stream_info import StreamInfo
 
 
@@ -11,6 +13,7 @@ class DocumentConverterResult:
         *,
         title: Optional[str] = None,
         mimetype: Optional[str] = None,
+        failed_attempts: List[FailedConversionAttempt] = None,
     ):
         """
         Initialize the DocumentConverterResult.
@@ -25,6 +28,7 @@ class DocumentConverterResult:
         self.markdown = markdown
         self.title = title
         self.mimetype = mimetype
+        self.failed_attempts = failed_attempts
 
     @property
     def text_content(self) -> str:

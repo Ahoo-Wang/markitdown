@@ -4,11 +4,10 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import Field
 
-from markitdown import StreamInfo
+from markitdown import StreamInfo, DocumentConverterResult
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
-    ConvertResult,
     StreamMetadata,
     ConvertResponse,
 )
@@ -27,7 +26,7 @@ class TextApiConverter(ApiConverter):
     def __init__(self, request: ConvertTextRequest):
         super().__init__(request)
 
-    def _internal_convert(self, **kwargs: Any) -> ConvertResult:
+    def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
         text_binary = self.request.text.encode("utf-8")
         self.metadata = StreamMetadata(
             mimetype=self.request.mimetype,
@@ -36,12 +35,8 @@ class TextApiConverter(ApiConverter):
         binary_io = BytesIO(text_binary)
 
         stream_info = StreamInfo(mimetype=self.request.mimetype)
-        result = self.markitdown.convert_stream(
+        return self.markitdown.convert_stream(
             stream=binary_io, stream_info=stream_info, **kwargs
-        )
-
-        return ConvertResult(
-            markdown=result.markdown, title=result.title, mimetype=result.mimetype
         )
 
 
