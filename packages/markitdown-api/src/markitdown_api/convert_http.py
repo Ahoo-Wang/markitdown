@@ -7,7 +7,7 @@ from fastapi import Body, APIRouter
 from pydantic import Field
 from requests.utils import CaseInsensitiveDict
 
-from markitdown import DocumentConverterResult
+from markitdown import DocumentConverterResult, StreamInfo
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
@@ -67,7 +67,9 @@ class HttpApiConverter(ApiConverter):
 
     def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
         response = requests.request(
-            self.request.method.value, self.request.url, headers=self.request.headers
+            method=self.request.method.value,
+            url=self.request.url,
+            headers=self.request.headers,
         )
         data_size = len(response.content)
         last_modified = _parse_last_modified_timestamp(response.headers)
@@ -77,7 +79,10 @@ class HttpApiConverter(ApiConverter):
         self.metadata = StreamMetadata(
             data_size=data_size, mimetype=mimetype, last_modified=last_modified
         )
-        return self.markitdown.convert_response(response, **kwargs)
+        stream_info = StreamInfo(mimetype=mimetype, charset=self.request.charset)
+        return self.markitdown.convert_response(
+            response=response, stream_info=stream_info, **kwargs
+        )
 
 
 router = APIRouter(prefix="/convert/http", tags=[TAG])

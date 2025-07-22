@@ -36,7 +36,9 @@ class FileApiConverter(ApiConverter):
             mimetype=_parse_mime_type_from_content_type(self.request.file.content_type),
         )
         stream_info = StreamInfo(
-            mimetype=self.metadata.mimetype, filename=self.request.file.filename
+            mimetype=self.metadata.mimetype,
+            filename=self.request.file.filename,
+            charset=self.request.charset,
         )
         with BufferedReader(self.request.file.file) as buffered_reader:
             return self.markitdown.convert_stream(

@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from fastapi import Query, Body, APIRouter
 from pydantic import Field
 
-from markitdown import DocumentConverterResult
+from markitdown import DocumentConverterResult, StreamInfo
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     ConvertRequest,
@@ -32,7 +32,10 @@ class UriApiConverter(ApiConverter):
         super().__init__(request)
 
     def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
-        return self.markitdown.convert_uri(self.request.uri, **kwargs)
+        stream_info = StreamInfo(charset=self.request.charset)
+        return self.markitdown.convert_uri(
+            self.request.uri, stream_info=stream_info, **kwargs
+        )
 
 
 router = APIRouter(prefix="/convert/uri", tags=[TAG])
