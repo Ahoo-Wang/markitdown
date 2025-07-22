@@ -34,7 +34,9 @@ class TextApiConverter(ApiConverter):
         )
         binary_io = BytesIO(text_binary)
 
-        stream_info = StreamInfo(mimetype=self.request.mimetype)
+        stream_info = StreamInfo(
+            mimetype=self.request.mimetype, charset=self.request.charset
+        )
         return self.markitdown.convert_stream(
             stream=binary_io, stream_info=stream_info, **kwargs
         )

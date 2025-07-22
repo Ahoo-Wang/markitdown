@@ -47,6 +47,10 @@ class ConvertRequest(BaseModel):
         default=False,
         description="If Strict is True, use strict mode to convert markdown",
     )
+    charset: str = Field(
+        default="utf-8",
+        description="Charset of the data",
+    )
 
     def get_llm_prompt(self) -> str:
         return self.llm.prompt if self.llm else ""
