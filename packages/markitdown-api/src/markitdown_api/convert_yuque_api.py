@@ -1,10 +1,14 @@
+import json
+import re
 from datetime import datetime
 from html import unescape
 from io import BytesIO
-from typing import Annotated, Any
+from typing import Annotated, Any, List
+from urllib.parse import unquote
 
 import requests
 from fastapi import Body, APIRouter
+from pydantic import BaseModel
 
 from markitdown import DocumentConverterResult, StreamInfo
 from markitdown_api.api_converter import ApiConverter
@@ -17,7 +21,7 @@ from markitdown_api.convert_http_request import ConvertHttpRequest
 
 TAG = "Convert YuQue Doc"
 
-EXAMPLE = "https://{repo}.yuque.com/api/docs/{doc_id}?book_id={book_id}&include_contributors=true&include_like=true&include_hits=true&merge_dynamic_data=false"
+EXAMPLE = "https://{login}.yuque.com/api/docs/{doc_url}?book_id={book_id}&include_contributors=true&include_like=true&include_hits=true&merge_dynamic_data=false"
 HTTP_DESCRIPTION = f"""
 The YuQue API URL to be converted.
 Supported schemes are: http:, https:.
@@ -81,3 +85,72 @@ async def convert_yuque_api_markdown(
     request: Annotated[ConvertHttpRequest, Body(examples=[{"url": EXAMPLE}])]
 ):
     return YuQueApiConverter(request).convert().result.markdown
+
+
+@router.get(path="/book")
+async def convert_yuque_book(url: str):
+    app_data = extract_yuque_app_data_url(url)
+    login = app_data.get("organization").get("login")
+    book_json = app_data.get("book")
+    book_id = book_json.get("id")
+    name = book_json.get("name")
+    toc_json = book_json.get("toc")
+    tocs = []
+    for toc in toc_json:
+        url = toc.get("url")
+        api_doc_url = ""
+        if url:
+            api_doc_url = f"https://{login}.yuque.com/api/docs/{url}?book_id={book_id}&include_contributors=true&include_like=true&include_hits=true&merge_dynamic_data=false"
+        book_toc = YuQueBookToc(
+            type=toc.get("type"),
+            title=toc.get("title"),
+            url=url,
+            api_doc_url=api_doc_url,
+        )
+        tocs.append(book_toc)
+
+    return YuQueBook(id=book_id, name=name, tocs=tocs)
+
+
+class YuQueBookToc(BaseModel):
+    type: str
+    title: str
+    url: str
+    api_doc_url: str
+
+
+class YuQueBook(BaseModel):
+    id: int
+    name: str
+    tocs: List[YuQueBookToc]
+
+
+def extract_yuque_app_data_url(url):
+    response = requests.get(url=url)
+    result = response.content.decode("utf-8")
+    if response.status_code != 200:
+        raise Exception(f"Failed to get YuQue API URL: {response.status_code} {result}")
+    return extract_yuque_app_data(result)
+
+
+def extract_yuque_app_data(html_text):
+    """
+    从HTML文本中提取window.appData的编码字符串，解码并转换为JSON对象
+    :param html_text: 包含appData的HTML文本
+    :return: 解析后的JSON字典
+    """
+    # 使用正则表达式匹配 window.appData 赋值语句
+    pattern = r'window\.appData\s*=\s*JSON\.parse\(decodeURIComponent\("([^"]+)"\)\)'
+    match = re.search(pattern, html_text)
+
+    if not match:
+        raise ValueError("No appData data found")
+
+    # 提取URI编码的字符串
+    encoded_str = match.group(1)
+
+    # 解码URI组件
+    decoded_str = unquote(encoded_str)
+
+    # 将解码后的字符串解析为JSON
+    return json.loads(decoded_str)
