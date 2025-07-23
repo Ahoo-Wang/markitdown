@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 import requests
 from fastapi import Body, APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from markitdown import DocumentConverterResult, StreamInfo
 from markitdown_api.api_converter import ApiConverter
@@ -113,16 +113,16 @@ async def convert_yuque_book(url: str):
 
 
 class YuQueBookToc(BaseModel):
-    type: str
-    title: str
-    url: str
-    api_doc_url: str
+    type: str = Field(default="")
+    title: str = Field(default="")
+    url: str = Field(default="")
+    api_doc_url: str = Field(default="")
 
 
 class YuQueBook(BaseModel):
-    id: int
-    name: str
-    tocs: List[YuQueBookToc]
+    id: int = Field(default=0)
+    name: str = Field(default="")
+    tocs: List[YuQueBookToc] = Field(default=[])
 
 
 def extract_yuque_app_data_url(url):
