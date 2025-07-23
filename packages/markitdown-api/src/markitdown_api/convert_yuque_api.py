@@ -87,7 +87,20 @@ async def convert_yuque_api_markdown(
     return YuQueApiConverter(request).convert().result.markdown
 
 
-@router.get(path="/book")
+class YuQueBookToc(BaseModel):
+    type: str = Field(default="")
+    title: str = Field(default="")
+    url: str = Field(default="")
+    api_doc_url: str = Field(default="")
+
+
+class YuQueBook(BaseModel):
+    id: int = Field(default=0)
+    name: str = Field(default="")
+    toc: List[YuQueBookToc] = Field(default=[])
+
+
+@router.get(path="/book", response_model=YuQueBook)
 async def convert_yuque_book(url: str):
     app_data = extract_yuque_app_data_url(url)
     login = app_data.get("organization").get("login")
@@ -110,19 +123,6 @@ async def convert_yuque_book(url: str):
         toc_list.append(book_toc)
 
     return YuQueBook(id=book_id, name=name, toc=toc_list)
-
-
-class YuQueBookToc(BaseModel):
-    type: str = Field(default="")
-    title: str = Field(default="")
-    url: str = Field(default="")
-    api_doc_url: str = Field(default="")
-
-
-class YuQueBook(BaseModel):
-    id: int = Field(default=0)
-    name: str = Field(default="")
-    toc: List[YuQueBookToc] = Field(default=[])
 
 
 def extract_yuque_app_data_url(url):
