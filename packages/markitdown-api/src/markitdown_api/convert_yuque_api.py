@@ -95,7 +95,7 @@ async def convert_yuque_book(url: str):
     book_id = book_json.get("id")
     name = book_json.get("name")
     toc_json = book_json.get("toc")
-    tocs = []
+    toc_list = []
     for toc in toc_json:
         url = toc.get("url")
         api_doc_url = ""
@@ -107,9 +107,9 @@ async def convert_yuque_book(url: str):
             url=url,
             api_doc_url=api_doc_url,
         )
-        tocs.append(book_toc)
+        toc_list.append(book_toc)
 
-    return YuQueBook(id=book_id, name=name, tocs=tocs)
+    return YuQueBook(id=book_id, name=name, toc=toc_list)
 
 
 class YuQueBookToc(BaseModel):
@@ -122,7 +122,7 @@ class YuQueBookToc(BaseModel):
 class YuQueBook(BaseModel):
     id: int = Field(default=0)
     name: str = Field(default="")
-    tocs: List[YuQueBookToc] = Field(default=[])
+    toc: List[YuQueBookToc] = Field(default=[])
 
 
 def extract_yuque_app_data_url(url):
