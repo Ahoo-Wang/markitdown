@@ -55,5 +55,5 @@ async def convert_text(request: ConvertTextRequest):
 
 
 @router.post(path="/markdown", response_class=MarkdownResponse)
-async def convert_uri_markdown(request: ConvertTextRequest):
+async def convert_text_markdown(request: ConvertTextRequest):
     return TextApiConverter(request).convert().result.markdown
