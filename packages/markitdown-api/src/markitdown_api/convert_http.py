@@ -60,7 +60,7 @@ async def convert_http(
 
 
 @router.post(path="/markdown", response_class=MarkdownResponse)
-async def convert_uri_markdown(
+async def convert_http_markdown(
     request: Annotated[
         ConvertHttpRequest, Body(examples=[{"url": "https://wow.ahoo.me/"}])
     ]
