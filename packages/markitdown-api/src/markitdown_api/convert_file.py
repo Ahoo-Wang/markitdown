@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, UploadFile, File, Form
 
 from markitdown import StreamInfo, DocumentConverterResult
+from markitdown_api._utils import _parse_mime_type_from_content_type
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     LlmOptions,
@@ -12,7 +13,6 @@ from markitdown_api.api_types import (
     ConvertResponse,
     StreamMetadata,
 )
-from markitdown_api.convert_http import _parse_mime_type_from_content_type
 
 TAG = "Convert File"
 

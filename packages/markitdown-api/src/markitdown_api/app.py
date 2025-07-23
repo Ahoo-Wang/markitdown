@@ -11,6 +11,7 @@ from markitdown_api import (
     convert_file,
     convert_http,
     __about__,
+    convert_yuque_api,
 )
 
 app = FastAPI(
@@ -29,6 +30,7 @@ app.include_router(convert_uri.router)
 app.include_router(convert_text.router)
 app.include_router(convert_file.router)
 app.include_router(convert_http.router)
+app.include_router(convert_yuque_api.router)
 
 
 def __error_content(exc: Exception):
