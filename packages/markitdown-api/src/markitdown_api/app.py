@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from requests import HTTPError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+import logging
 
 from markitdown import FileConversionException
 from markitdown.__about__ import __version__ as markitdown_version
@@ -13,6 +14,9 @@ from markitdown_api import (
     __about__,
     convert_yuque_api,
 )
+
+# 配置日志记录器
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="MarkItDown API",
@@ -38,38 +42,46 @@ def __error_content(exc: Exception):
 
 
 async def file_not_found_handler(request: Request, exc: FileNotFoundError):
+    logger.error(f"File not found: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=404, content=__error_content(exc))
 
 
 async def value_error_handler(request: Request, exc: ValueError):
+    logger.error(f"Value error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def http_error_handler(request: Request, exc: HTTPError):
+    logger.error(f"HTTP error: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=exc.response.status_code, content=__error_content(exc)
     )
 
 
 async def type_error_handler(request: Request, exc: TypeError):
+    logger.error(f"Type error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def key_error_handler(request: Request, exc: KeyError):
+    logger.error(f"Key error: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=400, content={"detail": f"Missing required field: {str(exc)}"}
     )
 
 
 async def file_conversion_handler(request: Request, exc: FileConversionException):
+    logger.error(f"File conversion error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def index_error_handler(request: Request, exc: IndexError):
+    logger.error(f"Index error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unexpected error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=500, content=__error_content(exc))
 
 
