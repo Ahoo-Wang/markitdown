@@ -42,41 +42,41 @@ def __error_content(exc: Exception):
 
 
 async def file_not_found_handler(request: Request, exc: FileNotFoundError):
-    logger.error(f"File not found: {str(exc)}", exc_info=True)
+    logger.warning(f"File not found: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=404, content=__error_content(exc))
 
 
 async def value_error_handler(request: Request, exc: ValueError):
-    logger.error(f"Value error: {str(exc)}", exc_info=True)
+    logger.warning(f"Value error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def http_error_handler(request: Request, exc: HTTPError):
-    logger.error(f"HTTP error: {str(exc)}", exc_info=True)
+    logger.warning(f"HTTP error: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=exc.response.status_code, content=__error_content(exc)
     )
 
 
 async def type_error_handler(request: Request, exc: TypeError):
-    logger.error(f"Type error: {str(exc)}", exc_info=True)
+    logger.warning(f"Type error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def key_error_handler(request: Request, exc: KeyError):
-    logger.error(f"Key error: {str(exc)}", exc_info=True)
+    logger.warning(f"Key error: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=400, content={"detail": f"Missing required field: {str(exc)}"}
     )
 
 
 async def file_conversion_handler(request: Request, exc: FileConversionException):
-    logger.error(f"File conversion error: {str(exc)}", exc_info=True)
+    logger.warning(f"File conversion error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
 async def index_error_handler(request: Request, exc: IndexError):
-    logger.error(f"Index error: {str(exc)}", exc_info=True)
+    logger.warning(f"Index error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=400, content=__error_content(exc))
 
 
