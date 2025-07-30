@@ -5,7 +5,7 @@ metadata:
   labels:
     app: markitdown-api
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
     rollingUpdate:
       maxSurge: 25%
@@ -19,6 +19,11 @@ spec:
       labels:
         app: markitdown-api
     spec:
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: "stateless"
+          effect: NoSchedule
       containers:
         - name: markitdown-api
           env:
@@ -69,7 +74,7 @@ spec:
               secretKeyRef:
                 key: OSS_BUCKET
                 name: markitdown-api-config
-          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.3.6
+          image: registry.cn-shanghai.aliyuncs.com/ahoo/markitdown-api:0.1.2-0.5.1
           ports:
             - name: http
               protocol: TCP
@@ -106,10 +111,10 @@ spec:
           resources:
             limits:
               cpu: "4"
-              memory: 2560Mi
+              memory: 4096Mi
             requests:
-              cpu: '0.25'
-              memory: 1024Mi
+              cpu: '2'
+              memory: 2048Mi
           volumeMounts:
             - mountPath: /etc/localtime
               name: volume-localtime
@@ -140,7 +145,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: markitdown-api
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 10
   metrics:
   - type: Resource
