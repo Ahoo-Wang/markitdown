@@ -43,7 +43,7 @@ class ApiConverter:
         if converted_result.mimetype:
             result.mimetype = converted_result.mimetype
 
-        if self.request.strict and converted_result.mimetype != TEXT_MARKDOWN_MIME_TYPE:
+        if self.request.strict and result.mimetype != TEXT_MARKDOWN_MIME_TYPE:
             raise FileConversionException(attempts=converted_result.failed_attempts)
         storage_result = None
         if self.request.storage:
