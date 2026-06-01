@@ -120,6 +120,7 @@ class OssImageUploader:
             key,
             content,
             headers={
+                "Content-Disposition": "inline",
                 "Content-Type": mimetype,
                 "x-oss-object-acl": self.object_acl,
             },

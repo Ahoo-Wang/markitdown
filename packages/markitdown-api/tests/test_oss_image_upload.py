@@ -98,7 +98,11 @@ def test_oss_image_uploader_uses_stable_hash_key_and_public_url():
         (
             expected_key,
             image_bytes,
-            {"Content-Type": "image/png", "x-oss-object-acl": "public-read"},
+            {
+                "Content-Disposition": "inline",
+                "Content-Type": "image/png",
+                "x-oss-object-acl": "public-read",
+            },
         )
     ]
     assert url == f"https://markitdown.oss-cn-hangzhou.aliyuncs.com/{expected_key}"
