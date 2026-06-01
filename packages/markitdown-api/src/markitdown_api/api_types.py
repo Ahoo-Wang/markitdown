@@ -34,7 +34,7 @@ class ConverterOptions(BaseModel):
 
 class RagOptions(BaseModel):
     enabled: bool = Field(
-        default=False,
+        default=True,
         description="If enabled, lightly normalize Markdown for RAG chunking",
     )
 
@@ -46,7 +46,7 @@ class ConvertRequest(BaseModel):
     converter: ConverterOptions | None = Field(
         default=None, description="Converter options"
     )
-    rag: RagOptions | None = Field(default=None, description="RAG options")
+    rag: RagOptions = Field(default_factory=RagOptions, description="RAG options")
     keep_data_uris: bool = Field(
         default=True,
         description="If keep_data_uris is True, use base64 encoding for images",

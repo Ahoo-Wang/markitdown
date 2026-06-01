@@ -37,7 +37,7 @@ class ApiConverter:
         )
         markdown = remove_all_zw_chars(converted_result.markdown)
         markdown = replace_data_images_with_oss_urls(markdown)
-        if self.request.rag and self.request.rag.enabled:
+        if self.request.rag.enabled:
             markdown = optimize_markdown_for_rag(markdown)
         result = ConvertResult(
             title=converted_result.title,

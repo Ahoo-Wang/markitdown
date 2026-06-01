@@ -55,7 +55,7 @@ async def convert_file(
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
     keep_data_uris: Annotated[bool, Form()] = True,
-    rag_clean: Annotated[bool, Form()] = False,
+    rag_clean: Annotated[bool, Form()] = True,
 ):
     return FileApiConverter(
         ConvertFileRequest(
@@ -80,7 +80,7 @@ async def convert_file_markdown(
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
     keep_data_uris: Annotated[bool, Form()] = True,
-    rag_clean: Annotated[bool, Form()] = False,
+    rag_clean: Annotated[bool, Form()] = True,
 ):
     return (
         FileApiConverter(

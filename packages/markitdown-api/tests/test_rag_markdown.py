@@ -62,7 +62,7 @@ def test_optimize_markdown_for_rag_does_not_remove_numbers_inside_tables():
     )
 
 
-def test_api_converter_applies_rag_optimizer_only_when_enabled(monkeypatch):
+def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
     markdown = "产品目录\n2\n"
 
     class StubApiConverter(ApiConverter):
@@ -74,10 +74,10 @@ def test_api_converter_applies_rag_optimizer_only_when_enabled(monkeypatch):
         lambda markdown_value: markdown_value,
     )
 
-    assert StubApiConverter(ConvertRequest()).convert().result.markdown == markdown
+    assert StubApiConverter(ConvertRequest()).convert().result.markdown == "# 产品目录"
     assert (
-        StubApiConverter(ConvertRequest(rag=RagOptions(enabled=True)))
+        StubApiConverter(ConvertRequest(rag=RagOptions(enabled=False)))
         .convert()
         .result.markdown
-        == "# 产品目录"
+        == markdown
     )
