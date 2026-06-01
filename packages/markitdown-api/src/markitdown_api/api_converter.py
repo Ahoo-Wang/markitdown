@@ -11,6 +11,7 @@ from markitdown_api.api_types import (
     TEXT_MARKDOWN_MIME_TYPE,
 )
 from markitdown_api.commons import build_markitdown
+from markitdown_api.oss_image_upload import replace_data_images_with_oss_urls
 from markitdown_api.storages.storager_registrar import StoragerRegistrar
 
 
@@ -34,6 +35,7 @@ class ApiConverter:
             selector=self.request.html.selector if self.request.html else None,
         )
         markdown = remove_all_zw_chars(converted_result.markdown)
+        markdown = replace_data_images_with_oss_urls(markdown)
         result = ConvertResult(
             title=converted_result.title,
             markdown=markdown,

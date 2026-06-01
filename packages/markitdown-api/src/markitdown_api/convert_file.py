@@ -53,7 +53,7 @@ async def convert_file(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = False,
+    keep_data_uris: Annotated[bool, Form()] = True,
 ):
     return FileApiConverter(
         ConvertFileRequest(
@@ -76,7 +76,7 @@ async def convert_file_markdown(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = False,
+    keep_data_uris: Annotated[bool, Form()] = True,
 ):
     return (
         FileApiConverter(

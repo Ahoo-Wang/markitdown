@@ -40,7 +40,7 @@ class ConvertRequest(BaseModel):
         default=None, description="Converter options"
     )
     keep_data_uris: bool = Field(
-        default=False,
+        default=True,
         description="If keep_data_uris is True, use base64 encoding for images",
     )
     strict: bool = Field(

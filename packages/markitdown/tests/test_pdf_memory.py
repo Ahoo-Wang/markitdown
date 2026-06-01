@@ -11,6 +11,8 @@ Verifies that:
 import gc
 import io
 import os
+import base64
+import re
 import tracemalloc
 
 import pytest
@@ -34,6 +36,7 @@ def _make_form_page():
     """Create a mock page with 3-column table-like word positions."""
     page = MagicMock()
     page.width = 612
+    page.height = 792
     page.close = MagicMock()
     page.extract_words.return_value = [
         {"text": "Name", "x0": 50, "x1": 100, "top": 10, "bottom": 20},
@@ -53,6 +56,7 @@ def _make_plain_page():
     """Create a mock page with single-line paragraph (no table structure)."""
     page = MagicMock()
     page.width = 612
+    page.height = 792
     page.close = MagicMock()
     page.extract_words.return_value = [
         {
@@ -65,6 +69,59 @@ def _make_plain_page():
     ]
     page.extract_text.return_value = "This is a long paragraph of plain text."
     return page
+
+
+class _FakePdfImageStream:
+    def __init__(self, data: bytes, pdf_filter: str, **attrs):
+        self.attrs = {"Filter": pdf_filter, **attrs}
+        self._data = data
+
+    def get_data(self):
+        return self._data
+
+
+def _make_pdf_image(
+    *,
+    x0: float,
+    top: float,
+    width: float,
+    height: float,
+    data: bytes = b"\xff\xd8fake jpeg",
+):
+    return {
+        "stream": _FakePdfImageStream(data, "DCTDecode"),
+        "x0": x0,
+        "x1": x0 + width,
+        "top": top,
+        "bottom": top + height,
+        "width": width,
+        "height": height,
+    }
+
+
+def _make_flate_indexed_cmyk_image(
+    *,
+    width: int,
+    height: int,
+    data: bytes,
+    palette: bytes,
+):
+    return {
+        "stream": _FakePdfImageStream(
+            data,
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace=["Indexed", "DeviceCMYK", (len(palette) // 4) - 1, palette],
+        ),
+        "x0": 80,
+        "x1": 80 + width,
+        "top": 120,
+        "bottom": 120 + height,
+        "width": width,
+        "height": height,
+    }
 
 
 def _mock_pdfplumber_open(pages):
@@ -241,6 +298,280 @@ class TestPdfMemoryOptimization:
             f"Expected 1 pdfplumber.open call (single pass), "
             f"got {mock_pdfplumber.open.call_count}"
         )
+
+    def test_keep_data_uris_appends_pdf_images_to_plain_text_pdf(self):
+        """PDF images should be preserved as data URIs when requested."""
+        page = _make_plain_page()
+        page.images = [
+            {"stream": _FakePdfImageStream(b"\xff\xd8fake jpeg", "DCTDecode")}
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "Plain text content" in result.text_content
+        assert "![PDF page 1 image 1](data:image/jpeg;base64," in result.text_content
+
+    def test_pdf_images_are_not_emitted_by_default(self):
+        """The core converter default should remain text-only for PDF images."""
+        page = _make_plain_page()
+        page.images = [
+            {"stream": _FakePdfImageStream(b"\xff\xd8fake jpeg", "DCTDecode")}
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+            )
+
+        assert "Plain text content" in result.text_content
+        assert "data:image/" not in result.text_content
+
+    def test_keep_data_uris_converts_flate_cmyk_pdf_images_to_png(self):
+        """Raw FlateDecode PDF image streams should be emitted as PNG data URIs."""
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    b"\x00\xff\xff\x00",
+                    "FlateDecode",
+                    Width=1,
+                    Height=1,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceCMYK",
+                )
+            }
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1](data:image/png;base64," in result.text_content
+        assert "iVBOR" in result.text_content
+
+    def test_keep_data_uris_converts_dct_cmyk_pdf_images_to_rgb_jpeg(self):
+        """CMYK JPEG streams from PDFs should be normalized for browser display."""
+        from PIL import Image
+
+        jpeg_stream = io.BytesIO()
+        Image.new("CMYK", (1, 1), (255, 255, 255, 255)).save(jpeg_stream, format="JPEG")
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    jpeg_stream.getvalue(),
+                    "DCTDecode",
+                    ColorSpace="DeviceCMYK",
+                )
+            }
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        match = re.search(
+            r"data:image/jpeg;base64,([A-Za-z0-9+/=]+)", result.text_content
+        )
+        assert match is not None
+
+        converted = Image.open(io.BytesIO(base64.b64decode(match.group(1)))).convert(
+            "RGB"
+        )
+        assert converted.getpixel((0, 0)) == (255, 255, 255)
+
+    def test_pdf_image_filter_skips_obvious_framework_images(self):
+        """PDF framework images should be skipped while content images remain."""
+        page = _make_plain_page()
+        page.images = [
+            _make_pdf_image(x0=10, top=10, width=1.5, height=700),
+            _make_pdf_image(x0=20, top=20, width=18, height=18),
+            _make_pdf_image(x0=80, top=120, width=240, height=140),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" not in result.text_content
+        assert "![PDF page 1 image 2]" not in result.text_content
+        assert "![PDF page 1 image 3](data:image/jpeg;base64," in result.text_content
+        assert result.text_content.count("data:image/") == 1
+
+    def test_pdf_image_filter_skips_low_contrast_flate_shadow_masks(self):
+        """Soft gray Flate/Indexed masks are PDF rendering layers, not content."""
+        width = 100
+        height = 100
+        data = bytearray([0] * (width * height))
+        for y in range(20, 80):
+            for x in range(20, 80):
+                data[y * width + x] = 1
+
+        page = _make_plain_page()
+        page.images = [
+            _make_flate_indexed_cmyk_image(
+                width=width,
+                height=height,
+                data=bytes(data),
+                palette=bytes([0, 0, 0, 0, 80, 80, 80, 0]),
+            )
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "data:image/" not in result.text_content
+
+    def test_pdf_image_filter_keeps_high_contrast_flate_images(self):
+        """High-contrast Flate/Indexed images such as QR codes should remain."""
+        width = 100
+        height = 100
+        data = bytes((x + y) % 2 for y in range(height) for x in range(width))
+
+        page = _make_plain_page()
+        page.images = [
+            _make_flate_indexed_cmyk_image(
+                width=width,
+                height=height,
+                data=data,
+                palette=bytes([0, 0, 0, 0, 0, 0, 0, 255]),
+            )
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1](data:image/png;base64," in result.text_content
+
+    def test_pdf_image_filter_can_be_disabled_with_environment(self, monkeypatch):
+        """Set PDF_IMAGE_FILTER_ENABLED=false to keep all extractable images."""
+        monkeypatch.setenv("PDF_IMAGE_FILTER_ENABLED", "false")
+        page = _make_plain_page()
+        page.images = [
+            _make_pdf_image(x0=10, top=10, width=1.5, height=700),
+            _make_pdf_image(x0=80, top=120, width=240, height=140),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1](data:image/jpeg;base64," in result.text_content
+        assert "![PDF page 1 image 2](data:image/jpeg;base64," in result.text_content
 
     @pytest.mark.skipif(
         not os.path.exists(os.path.join(TEST_FILES_DIR, "test.pdf")),
