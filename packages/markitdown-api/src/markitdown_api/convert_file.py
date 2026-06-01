@@ -11,6 +11,7 @@ from markitdown_api.api_types import (
     MarkdownResponse,
     ConvertRequest,
     ConvertResponse,
+    RagOptions,
     StreamMetadata,
 )
 
@@ -54,11 +55,13 @@ async def convert_file(
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
     keep_data_uris: Annotated[bool, Form()] = True,
+    rag_clean: Annotated[bool, Form()] = False,
 ):
     return FileApiConverter(
         ConvertFileRequest(
             file=file,
             keep_data_uris=keep_data_uris,
+            rag=RagOptions(enabled=rag_clean),
             llm=LlmOptions(
                 model=llm_model,
                 open_ai_api_key=openai_api_key,
@@ -77,12 +80,14 @@ async def convert_file_markdown(
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
     keep_data_uris: Annotated[bool, Form()] = True,
+    rag_clean: Annotated[bool, Form()] = False,
 ):
     return (
         FileApiConverter(
             ConvertFileRequest(
                 file=file,
                 keep_data_uris=keep_data_uris,
+                rag=RagOptions(enabled=rag_clean),
                 llm=LlmOptions(
                     model=llm_model,
                     open_ai_api_key=openai_api_key,
