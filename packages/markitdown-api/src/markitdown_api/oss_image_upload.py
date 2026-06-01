@@ -38,7 +38,7 @@ def _credentials_provider_from_environment(credentials_module):
     if not access_key_id:
         raise ValueError("OSS_ACCESS_KEY_ID is not set")
     if not access_key_secret:
-        raise ValueError("OSS_ACCESS_KEY_SECRET is not set")
+        raise ValueError("OSS_ACCESS_KEY_SECRET or OSS_SECRET_ACCESS_KEY is not set")
 
     return credentials_module.StaticCredentialsProvider(
         access_key_id,
@@ -164,7 +164,7 @@ def replace_data_images_with_oss_urls(
     try:
         uploader = uploader_factory()
     except Exception as exc:
-        logger.warning(
+        logger.info(
             "OSS image uploader is unavailable; keeping data URI images: %s", exc
         )
         return markdown

@@ -62,6 +62,34 @@ def test_optimize_markdown_for_rag_does_not_remove_numbers_inside_tables():
     )
 
 
+def test_optimize_markdown_for_rag_preserves_fenced_code_blocks():
+    markdown = """Notebook
+2
+
+```python
+  print("hello")
+  2
++
+```
+
+目录
+3
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# Notebook
+
+```python
+  print("hello")
+  2
++
+```
+
+## 目录"""
+    )
+
+
 def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
     markdown = "产品目录\n2\n"
 

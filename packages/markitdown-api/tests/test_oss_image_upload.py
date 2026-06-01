@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import logging
 from datetime import datetime, timezone
 
 import pytest
@@ -53,6 +54,30 @@ def test_replace_data_images_keeps_data_uri_when_oss_is_unavailable():
         )
         == markdown
     )
+
+
+def test_replace_data_images_logs_expected_oss_unavailable_fallback_as_info(caplog):
+    image_bytes = b"fake-png-bytes"
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    markdown = f"![chart](data:image/png;base64,{encoded})"
+
+    def unavailable_uploader():
+        raise ValueError("OSS_ENDPOINT is not set")
+
+    caplog.set_level(logging.INFO, logger="markitdown_api.oss_image_upload")
+
+    assert (
+        replace_data_images_with_oss_urls(
+            markdown, uploader_factory=unavailable_uploader
+        )
+        == markdown
+    )
+    assert any(
+        record.levelno == logging.INFO
+        and "OSS image uploader is unavailable" in record.message
+        for record in caplog.records
+    )
+    assert not any(record.levelno >= logging.WARNING for record in caplog.records)
 
 
 def test_replace_data_images_keeps_data_uri_when_single_upload_fails():
@@ -131,6 +156,19 @@ def test_oss_credentials_provider_accepts_secret_access_key_alias(monkeypatch):
 
     assert credentials.get_access_key_id() == "access-key-id"
     assert credentials.get_access_key_secret() == "secret-access-key"
+
+
+def test_oss_credentials_provider_missing_secret_mentions_both_supported_names(
+    monkeypatch,
+):
+    monkeypatch.setenv("OSS_ACCESS_KEY_ID", "access-key-id")
+    monkeypatch.delenv("OSS_ACCESS_KEY_SECRET", raising=False)
+    monkeypatch.delenv("OSS_SECRET_ACCESS_KEY", raising=False)
+
+    with pytest.raises(
+        ValueError, match="OSS_ACCESS_KEY_SECRET.*OSS_SECRET_ACCESS_KEY"
+    ):
+        _credentials_provider_from_environment(object())
 
 
 def test_convert_request_defaults_to_keep_data_uris_for_oss_fallback():

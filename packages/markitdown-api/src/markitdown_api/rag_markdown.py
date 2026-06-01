@@ -4,6 +4,7 @@ from collections import Counter
 _MARKDOWN_IMAGE_RE = re.compile(
     r"^!\[(?P<alt>(?:\\.|[^\]])*)\]" r"\(" r"(?P<target>[^)]*)" r"\)$"
 )
+_FENCE_RE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})")
 
 _EXACT_SECTION_HEADINGS = {
     "目录",
@@ -24,17 +25,25 @@ def optimize_markdown_for_rag(markdown: str) -> str:
     """Lightly normalize converted Markdown so downstream chunking has anchors."""
 
     lines = _merge_split_registered_terms(markdown.splitlines())
-    line_counts = Counter(
-        line.strip()
-        for line in lines
-        if _is_context_line(line.strip()) and not _is_standalone_page_number(line)
-    )
+    line_counts = Counter(line.strip() for line in _non_fenced_lines(lines))
 
     output: list[str] = []
     current_context: str | None = None
     title_seen = False
+    fence_marker: str | None = None
 
     for raw_line in lines:
+        marker = _fence_marker(raw_line)
+        if fence_marker:
+            output.append(raw_line)
+            if marker == fence_marker:
+                fence_marker = None
+            continue
+        if marker:
+            output.append(raw_line)
+            fence_marker = marker
+            continue
+
         line = raw_line.strip()
 
         if not line:
@@ -84,9 +93,23 @@ def optimize_markdown_for_rag(markdown: str) -> str:
 
 def _merge_split_registered_terms(lines: list[str]) -> list[str]:
     merged: list[str] = []
+    fence_marker: str | None = None
     i = 0
     while i < len(lines):
         line = lines[i]
+        marker = _fence_marker(line)
+        if fence_marker:
+            merged.append(line)
+            if marker == fence_marker:
+                fence_marker = None
+            i += 1
+            continue
+        if marker:
+            merged.append(line)
+            fence_marker = marker
+            i += 1
+            continue
+
         if line.strip() == "®" and i + 1 < len(lines):
             blank_buffer = _pop_trailing_blank_lines(merged)
             suffix = lines[i + 1].strip()
@@ -109,6 +132,29 @@ def _merge_split_registered_terms(lines: list[str]) -> list[str]:
         merged.append(line)
         i += 1
     return merged
+
+
+def _non_fenced_lines(lines: list[str]):
+    fence_marker: str | None = None
+    for line in lines:
+        marker = _fence_marker(line)
+        if fence_marker:
+            if marker == fence_marker:
+                fence_marker = None
+            continue
+        if marker:
+            fence_marker = marker
+            continue
+        stripped = line.strip()
+        if _is_context_line(stripped) and not _is_standalone_page_number(stripped):
+            yield line
+
+
+def _fence_marker(line: str) -> str | None:
+    match = _FENCE_RE.match(line)
+    if not match:
+        return None
+    return match.group("marker")[0]
 
 
 def _pop_trailing_blank_lines(lines: list[str]) -> list[str]:
