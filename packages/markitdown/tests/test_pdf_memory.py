@@ -23,6 +23,10 @@ from markitdown import MarkItDown
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_files")
 
 
+def _require_pillow():
+    return pytest.importorskip("PIL.Image")
+
+
 def _has_fpdf2() -> bool:
     try:
         import fpdf  # noqa: F401
@@ -383,6 +387,7 @@ class TestPdfMemoryOptimization:
 
     def test_keep_data_uris_converts_flate_cmyk_pdf_images_to_png(self):
         """Raw FlateDecode PDF image streams should be emitted as PNG data URIs."""
+        _require_pillow()
         page = _make_plain_page()
         page.images = [
             {
@@ -420,7 +425,7 @@ class TestPdfMemoryOptimization:
 
     def test_keep_data_uris_converts_dct_cmyk_pdf_images_to_rgb_jpeg(self):
         """CMYK JPEG streams from PDFs should be normalized for browser display."""
-        from PIL import Image
+        Image = _require_pillow()
 
         jpeg_stream = io.BytesIO()
         Image.new("CMYK", (1, 1), (255, 255, 255, 255)).save(jpeg_stream, format="JPEG")
@@ -497,6 +502,7 @@ class TestPdfMemoryOptimization:
 
     def test_pdf_image_filter_skips_low_contrast_flate_shadow_masks(self):
         """Soft gray Flate/Indexed masks are PDF rendering layers, not content."""
+        _require_pillow()
         width = 100
         height = 100
         data = bytearray([0] * (width * height))
@@ -536,6 +542,7 @@ class TestPdfMemoryOptimization:
 
     def test_pdf_image_filter_keeps_high_contrast_flate_images(self):
         """High-contrast Flate/Indexed images such as QR codes should remain."""
+        _require_pillow()
         width = 100
         height = 100
         data = bytes((x + y) % 2 for y in range(height) for x in range(width))
