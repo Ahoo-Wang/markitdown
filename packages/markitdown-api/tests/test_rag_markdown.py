@@ -1,0 +1,198 @@
+from markitdown import DocumentConverterResult
+
+from markitdown_api.api_converter import ApiConverter
+from markitdown_api.api_types import ConvertRequest, RagOptions
+from markitdown_api.rag_markdown import optimize_markdown_for_rag
+
+
+def test_optimize_markdown_for_rag_cleans_pdf_markdown_for_chunking():
+    markdown = """产品目录
+HELLO Industry
++
+2
+
+目录
+CE认证服务
+4
+
+![PDF page 4 image 1](https://cdn.example.com/page4.jpg)
+
+工业安全解决方案
+可编程安全控制器 -- sAMOs
+
+®
+ PRO
+| 功能/版本 | 标准版 |
+| ----- | --- |
+| PL | Level e |
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, heading_keywords=["目录", "工业安全解决方案"])
+        == """# 产品目录
+HELLO Industry
+
+## 目录
+CE认证服务
+
+![CE认证服务 - PDF page 4 image 1](https://cdn.example.com/page4.jpg)
+
+## 工业安全解决方案
+可编程安全控制器 -- sAMOs® PRO
+| 功能/版本 | 标准版 |
+| ----- | --- |
+| PL | Level e |"""
+    )
+
+
+def test_optimize_markdown_for_rag_does_not_embed_business_heading_keywords():
+    markdown = """产品目录
+
+工业通讯
+这个短行来自某个业务文档，不应被通用规则硬编码成标题。
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# 产品目录
+
+工业通讯
+这个短行来自某个业务文档，不应被通用规则硬编码成标题。"""
+    )
+    assert (
+        optimize_markdown_for_rag(markdown, heading_keywords=["工业通讯"])
+        == """# 产品目录
+
+## 工业通讯
+这个短行来自某个业务文档，不应被通用规则硬编码成标题。"""
+    )
+
+
+def test_optimize_markdown_for_rag_does_not_remove_numbers_inside_tables():
+    markdown = """参数
+| 页码 | 数值 |
+| --- | --- |
+| 4 | 24 V |
+5
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# 参数
+| 页码 | 数值 |
+| --- | --- |
+| 4 | 24 V |"""
+    )
+
+
+def test_optimize_markdown_for_rag_preserves_fenced_code_blocks():
+    markdown = """Notebook
+2
+
+```python
+  print("hello")
+  2
++
+```
+
+目录
+3
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, heading_keywords=["目录"])
+        == """# Notebook
+
+```python
+  print("hello")
+  2
++
+```
+
+## 目录"""
+    )
+
+
+def test_optimize_markdown_for_rag_preserves_long_fences_with_shorter_inner_fence():
+    markdown = """Notebook
+
+````python
+print("before")
+```
+2
++
+````
+
+目录
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, heading_keywords=["目录"])
+        == """# Notebook
+
+````python
+print("before")
+```
+2
++
+````
+
+## 目录"""
+    )
+
+
+def test_optimize_markdown_for_rag_does_not_merge_registered_mark_with_long_suffix():
+    markdown = """Product
+
+®
+this suffix is too long
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# Product
+
+®
+this suffix is too long"""
+    )
+
+
+def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
+    markdown = "产品目录\n2\n"
+
+    class StubApiConverter(ApiConverter):
+        def _internal_convert(self, **kwargs):
+            return DocumentConverterResult(markdown=markdown)
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.replace_data_images_with_oss_urls",
+        lambda markdown_value: markdown_value,
+    )
+
+    assert StubApiConverter(ConvertRequest()).convert().result.markdown == "# 产品目录"
+    assert (
+        StubApiConverter(ConvertRequest(rag=RagOptions(enabled=False)))
+        .convert()
+        .result.markdown
+        == markdown
+    )
+
+
+def test_api_converter_uses_configured_rag_heading_keywords(monkeypatch):
+    markdown = "产品目录\n\n目录\n"
+
+    class StubApiConverter(ApiConverter):
+        def _internal_convert(self, **kwargs):
+            return DocumentConverterResult(markdown=markdown)
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.replace_data_images_with_oss_urls",
+        lambda markdown_value: markdown_value,
+    )
+
+    assert (
+        StubApiConverter(ConvertRequest(rag=RagOptions(heading_keywords=["目录"])))
+        .convert()
+        .result.markdown
+        == "# 产品目录\n\n## 目录"
+    )

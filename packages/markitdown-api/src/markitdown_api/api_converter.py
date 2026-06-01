@@ -11,6 +11,8 @@ from markitdown_api.api_types import (
     TEXT_MARKDOWN_MIME_TYPE,
 )
 from markitdown_api.commons import build_markitdown
+from markitdown_api.oss_image_upload import replace_data_images_with_oss_urls
+from markitdown_api.rag_markdown import optimize_markdown_for_rag
 from markitdown_api.storages.storager_registrar import StoragerRegistrar
 
 
@@ -34,6 +36,11 @@ class ApiConverter:
             selector=self.request.html.selector if self.request.html else None,
         )
         markdown = remove_all_zw_chars(converted_result.markdown)
+        markdown = replace_data_images_with_oss_urls(markdown)
+        if self.request.rag.enabled:
+            markdown = optimize_markdown_for_rag(
+                markdown, heading_keywords=self.request.rag.heading_keywords
+            )
         result = ConvertResult(
             title=converted_result.title,
             markdown=markdown,

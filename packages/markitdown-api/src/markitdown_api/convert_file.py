@@ -11,6 +11,7 @@ from markitdown_api.api_types import (
     MarkdownResponse,
     ConvertRequest,
     ConvertResponse,
+    RagOptions,
     StreamMetadata,
 )
 
@@ -46,6 +47,11 @@ class FileApiConverter(ApiConverter):
             )
 
 
+def _parse_rag_heading_keywords(value: str) -> list[str]:
+    normalized = value.replace("，", ",").replace("\n", ",")
+    return [keyword.strip() for keyword in normalized.split(",") if keyword.strip()]
+
+
 @router.post(path="", response_model=ConvertResponse)
 async def convert_file(
     file: Annotated[UploadFile, File()],
@@ -53,12 +59,18 @@ async def convert_file(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = False,
+    keep_data_uris: Annotated[bool, Form()] = True,
+    rag_clean: Annotated[bool, Form()] = True,
+    rag_heading_keywords: Annotated[str, Form()] = "",
 ):
     return FileApiConverter(
         ConvertFileRequest(
             file=file,
             keep_data_uris=keep_data_uris,
+            rag=RagOptions(
+                enabled=rag_clean,
+                heading_keywords=_parse_rag_heading_keywords(rag_heading_keywords),
+            ),
             llm=LlmOptions(
                 model=llm_model,
                 open_ai_api_key=openai_api_key,
@@ -76,13 +88,19 @@ async def convert_file_markdown(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = False,
+    keep_data_uris: Annotated[bool, Form()] = True,
+    rag_clean: Annotated[bool, Form()] = True,
+    rag_heading_keywords: Annotated[str, Form()] = "",
 ):
     return (
         FileApiConverter(
             ConvertFileRequest(
                 file=file,
                 keep_data_uris=keep_data_uris,
+                rag=RagOptions(
+                    enabled=rag_clean,
+                    heading_keywords=_parse_rag_heading_keywords(rag_heading_keywords),
+                ),
                 llm=LlmOptions(
                     model=llm_model,
                     open_ai_api_key=openai_api_key,
