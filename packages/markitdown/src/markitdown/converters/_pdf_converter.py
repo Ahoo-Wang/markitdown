@@ -459,12 +459,15 @@ def _pdf_image_to_data_uri(image: Any) -> str | None:
     return f"data:{mimetype};base64,{payload}"
 
 
-def _extract_pdf_image_markdown(page: Any, page_number: int) -> list[str]:
+def _extract_pdf_image_markdown(
+    page: Any, page_number: int, page_has_text_layer: bool | None = None
+) -> list[str]:
     markdown_images: list[str] = []
-    try:
-        page_has_text_layer = bool((page.extract_text() or "").strip())
-    except Exception:
-        page_has_text_layer = False
+    if page_has_text_layer is None:
+        try:
+            page_has_text_layer = bool((page.extract_text() or "").strip())
+        except Exception:
+            page_has_text_layer = False
 
     for image_number, image in enumerate(getattr(page, "images", []) or [], start=1):
         if _is_obvious_framework_pdf_image(page, image, page_has_text_layer):
@@ -958,21 +961,26 @@ class PdfConverter(DocumentConverter):
             with pdfplumber.open(pdf_bytes) as pdf:
                 for page_idx, page in enumerate(pdf.pages):
                     page_content = _extract_form_content_from_words(page)
-                    page_image_chunks = (
-                        _extract_pdf_image_markdown(page, page_idx + 1)
-                        if keep_data_uris
-                        else []
-                    )
 
                     if page_content is not None:
                         form_page_count += 1
+                        page_has_text_layer = bool(page_content.strip())
                         if page_content.strip():
                             markdown_chunks.append(page_content)
                     else:
                         plain_page_indices.append(page_idx)
                         text = page.extract_text()
+                        page_has_text_layer = bool((text or "").strip())
                         if text and text.strip():
                             markdown_chunks.append(text.strip())
+
+                    page_image_chunks = (
+                        _extract_pdf_image_markdown(
+                            page, page_idx + 1, page_has_text_layer
+                        )
+                        if keep_data_uris
+                        else []
+                    )
 
                     if page_image_chunks:
                         markdown_chunks.extend(page_image_chunks)

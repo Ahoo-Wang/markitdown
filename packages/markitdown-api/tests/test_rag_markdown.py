@@ -113,6 +113,50 @@ def test_optimize_markdown_for_rag_preserves_fenced_code_blocks():
     )
 
 
+def test_optimize_markdown_for_rag_preserves_long_fences_with_shorter_inner_fence():
+    markdown = """Notebook
+
+````python
+print("before")
+```
+2
++
+````
+
+目录
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, heading_keywords=["目录"])
+        == """# Notebook
+
+````python
+print("before")
+```
+2
++
+````
+
+## 目录"""
+    )
+
+
+def test_optimize_markdown_for_rag_does_not_merge_registered_mark_with_long_suffix():
+    markdown = """Product
+
+®
+this suffix is too long
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# Product
+
+®
+this suffix is too long"""
+    )
+
+
 def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
     markdown = "产品目录\n2\n"
 

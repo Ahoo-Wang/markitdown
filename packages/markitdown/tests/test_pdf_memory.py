@@ -327,6 +327,33 @@ class TestPdfMemoryOptimization:
         assert "Plain text content" in result.text_content
         assert "![PDF page 1 image 1](data:image/jpeg;base64," in result.text_content
 
+    def test_keep_data_uris_reuses_page_text_for_image_filtering(self):
+        """Plain pages with images should extract page text only once."""
+        page = _make_plain_page()
+        page.images = [
+            {"stream": _FakePdfImageStream(b"\xff\xd8fake jpeg", "DCTDecode")}
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert page.extract_text.call_count == 1
+
     def test_pdf_images_are_not_emitted_by_default(self):
         """The core converter default should remain text-only for PDF images."""
         page = _make_plain_page()

@@ -29,7 +29,7 @@ def optimize_markdown_for_rag(
         marker = _fence_marker(raw_line)
         if fence_marker:
             output.append(raw_line)
-            if marker == fence_marker:
+            if _is_closing_fence(marker, fence_marker):
                 fence_marker = None
             continue
         if marker:
@@ -93,7 +93,7 @@ def _merge_split_registered_terms(lines: list[str]) -> list[str]:
         marker = _fence_marker(line)
         if fence_marker:
             merged.append(line)
-            if marker == fence_marker:
+            if _is_closing_fence(marker, fence_marker):
                 fence_marker = None
             i += 1
             continue
@@ -103,15 +103,18 @@ def _merge_split_registered_terms(lines: list[str]) -> list[str]:
             i += 1
             continue
 
-        if line.strip() == "®" and i + 1 < len(lines):
+        if line.strip() == "®":
             blank_buffer = _pop_trailing_blank_lines(merged)
-            suffix = lines[i + 1].strip()
+            suffix = lines[i + 1].strip() if i + 1 < len(lines) else ""
             if merged and 1 <= len(suffix) <= 12:
                 previous = merged.pop().rstrip()
                 merged.append(f"{previous}® {suffix}")
                 i += 2
                 continue
             merged.extend(blank_buffer)
+            merged.append(line)
+            i += 1
+            continue
 
         if line.strip().startswith("®"):
             blank_buffer = _pop_trailing_blank_lines(merged)
@@ -132,7 +135,7 @@ def _non_fenced_lines(lines: list[str]):
     for line in lines:
         marker = _fence_marker(line)
         if fence_marker:
-            if marker == fence_marker:
+            if _is_closing_fence(marker, fence_marker):
                 fence_marker = None
             continue
         if marker:
@@ -147,7 +150,15 @@ def _fence_marker(line: str) -> str | None:
     match = _FENCE_RE.match(line)
     if not match:
         return None
-    return match.group("marker")[0]
+    return match.group("marker")
+
+
+def _is_closing_fence(marker: str | None, opening_marker: str) -> bool:
+    return (
+        marker is not None
+        and marker[0] == opening_marker[0]
+        and len(marker) >= len(opening_marker)
+    )
 
 
 def _pop_trailing_blank_lines(lines: list[str]) -> list[str]:
