@@ -37,6 +37,10 @@ class RagOptions(BaseModel):
         default=True,
         description="If enabled, lightly normalize Markdown for RAG chunking",
     )
+    heading_keywords: List[str] = Field(
+        default_factory=list,
+        description="Optional exact headings to promote during RAG cleanup",
+    )
 
 
 class ConvertRequest(BaseModel):

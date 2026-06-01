@@ -28,7 +28,7 @@ CE认证服务
 """
 
     assert (
-        optimize_markdown_for_rag(markdown)
+        optimize_markdown_for_rag(markdown, heading_keywords=["目录", "工业安全解决方案"])
         == """# 产品目录
 HELLO Industry
 
@@ -42,6 +42,29 @@ CE认证服务
 | 功能/版本 | 标准版 |
 | ----- | --- |
 | PL | Level e |"""
+    )
+
+
+def test_optimize_markdown_for_rag_does_not_embed_business_heading_keywords():
+    markdown = """产品目录
+
+工业通讯
+这个短行来自某个业务文档，不应被通用规则硬编码成标题。
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# 产品目录
+
+工业通讯
+这个短行来自某个业务文档，不应被通用规则硬编码成标题。"""
+    )
+    assert (
+        optimize_markdown_for_rag(markdown, heading_keywords=["工业通讯"])
+        == """# 产品目录
+
+## 工业通讯
+这个短行来自某个业务文档，不应被通用规则硬编码成标题。"""
     )
 
 
@@ -77,7 +100,7 @@ def test_optimize_markdown_for_rag_preserves_fenced_code_blocks():
 """
 
     assert (
-        optimize_markdown_for_rag(markdown)
+        optimize_markdown_for_rag(markdown, heading_keywords=["目录"])
         == """# Notebook
 
 ```python
@@ -108,4 +131,24 @@ def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
         .convert()
         .result.markdown
         == markdown
+    )
+
+
+def test_api_converter_uses_configured_rag_heading_keywords(monkeypatch):
+    markdown = "产品目录\n\n目录\n"
+
+    class StubApiConverter(ApiConverter):
+        def _internal_convert(self, **kwargs):
+            return DocumentConverterResult(markdown=markdown)
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.replace_data_images_with_oss_urls",
+        lambda markdown_value: markdown_value,
+    )
+
+    assert (
+        StubApiConverter(ConvertRequest(rag=RagOptions(heading_keywords=["目录"])))
+        .convert()
+        .result.markdown
+        == "# 产品目录\n\n## 目录"
     )

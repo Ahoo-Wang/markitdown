@@ -6,26 +6,19 @@ _MARKDOWN_IMAGE_RE = re.compile(
 )
 _FENCE_RE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})")
 
-_EXACT_SECTION_HEADINGS = {
-    "目录",
-    "安全服务",
-    "工业安全解决方案",
-    "定制化产品",
-    "工业通讯",
-    "工业电子",
-    "现场电源分配",
-    "快速连接系统",
-    "联系我们",
-}
-
 _NOISE_LINES = {"+", "-", "--", "是", "否", "×", "√"}
 
 
-def optimize_markdown_for_rag(markdown: str) -> str:
+def optimize_markdown_for_rag(
+    markdown: str, *, heading_keywords: list[str] | None = None
+) -> str:
     """Lightly normalize converted Markdown so downstream chunking has anchors."""
 
     lines = _merge_split_registered_terms(markdown.splitlines())
     line_counts = Counter(line.strip() for line in _non_fenced_lines(lines))
+    heading_keyword_set = {
+        keyword.strip() for keyword in (heading_keywords or []) if keyword.strip()
+    }
 
     output: list[str] = []
     current_context: str | None = None
@@ -75,7 +68,7 @@ def optimize_markdown_for_rag(markdown: str) -> str:
             current_context = _plain_heading_text(output[-1])
             continue
 
-        if _is_likely_section_heading(line, line_counts):
+        if _is_likely_section_heading(line, line_counts, heading_keyword_set):
             heading = line if line.startswith("#") else f"## {line}"
             output.append(heading)
             current_context = _plain_heading_text(heading)
@@ -201,14 +194,14 @@ def _is_context_line(line: str) -> bool:
     return len(line) <= 36
 
 
-def _is_likely_section_heading(line: str, line_counts: Counter[str]) -> bool:
+def _is_likely_section_heading(
+    line: str, line_counts: Counter[str], heading_keywords: set[str]
+) -> bool:
     if line.startswith("#"):
         return True
     if not _is_context_line(line):
         return False
-    if line in _EXACT_SECTION_HEADINGS:
-        return True
-    if "解决方案" in line and len(line) <= 24:
+    if line in heading_keywords:
         return True
     return line_counts[line] >= 3 and _contains_cjk(line)
 
