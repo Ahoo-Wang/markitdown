@@ -18,11 +18,12 @@ def blank_then_none(s: str) -> str | None:
 
 
 def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
-    base_url = api_key = llm_client = llm_model = None
+    base_url = api_key = llm_client = llm_model = llm_prompt = None
     if llm_options:
         base_url = blank_then_none(llm_options.open_ai_base_url)
         api_key = blank_then_none(llm_options.open_ai_api_key)
         llm_model = blank_then_none(llm_options.model)
+        llm_prompt = blank_then_none(llm_options.prompt)
     if not llm_model:
         llm_model = blank_then_none(os.environ.get("LLM_MODEL"))
 
@@ -35,6 +36,7 @@ def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
         enable_builtins=True,
         llm_client=llm_client,
         llm_model=llm_model,
+        llm_prompt=llm_prompt,
     )
     return markitdown
 

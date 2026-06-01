@@ -30,34 +30,37 @@ dependencies = [
   "magika~=0.6.1",
   "charset-normalizer",
   "defusedxml",
-  "onnxruntime<=1.20.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
 all = [
   "python-pptx",
-  "mammoth",
+  "mammoth~=1.11.0",
   "pandas",
   "openpyxl",
   "xlrd",
   "lxml",
-  "pdfminer.six",
+  "pdfminer.six>=20251230",
+  "pdfplumber>=0.11.9",
   "olefile",
   "pydub",
   "SpeechRecognition",
   "youtube-transcript-api~=1.0.0",
   "azure-ai-documentintelligence",
-  "azure-identity"
+  "azure-ai-contentunderstanding>=1.2.0b1",
+  "azure-identity",
 ]
 pptx = ["python-pptx"]
-docx = ["mammoth", "lxml"]
+docx = ["mammoth~=1.11.0", "lxml"]
 xlsx = ["pandas", "openpyxl"]
 xls = ["pandas", "xlrd"]
-pdf = ["pdfminer.six"]
+pdf = ["pdfminer.six>=20251230", "pdfplumber>=0.11.9"]
 outlook = ["olefile"]
 audio-transcription = ["pydub", "SpeechRecognition"]
 youtube-transcription = ["youtube-transcript-api"]
 az-doc-intel = ["azure-ai-documentintelligence", "azure-identity"]
+# >=1.2.0b1 required for to_llm_input() helper used by ContentUnderstandingConverter
+az-content-understanding = ["azure-ai-contentunderstanding>=1.2.0b1", "azure-identity"]
 
 [project.urls]
 Documentation = "https://github.com/microsoft/markitdown#readme"

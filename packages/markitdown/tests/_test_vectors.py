@@ -115,7 +115,7 @@ GENERAL_TEST_VECTORS = [
         url="https://en.wikipedia.org/wiki/Microsoft",
         must_include=[
             "Microsoft entered the operating system (OS) business in 1980 with its own version of [Unix]",
-            'Microsoft was founded by [Bill Gates](/wiki/Bill_Gates "Bill Gates")',
+            'Microsoft was founded by [Bill Gates](https://en.wikipedia.org/wiki/Bill_Gates "Bill Gates")',
         ],
         must_not_include=[
             "You are encouraged to create an account and log in",

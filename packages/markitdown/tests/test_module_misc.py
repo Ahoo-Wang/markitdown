@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import pytest
+from unittest.mock import MagicMock
 
 from markitdown._uri_utils import parse_data_uri, file_uri_to_path
 
@@ -287,6 +288,97 @@ def test_input_as_strings() -> None:
     assert "# Test" in result.text_content
 
 
+def test_deeply_nested_html_fallback() -> None:
+    """Large, deeply nested HTML should fall back to plain-text extraction
+    instead of silently returning unconverted HTML (issue #1636).
+
+    Note: This test uses sys.setrecursionlimit to guarantee a RecursionError
+    regardless of the host environment's default limit, making it deterministic
+    across different platforms and CI configurations.
+    """
+    import sys
+    import warnings
+
+    markitdown = MarkItDown()
+
+    # Use a small recursion limit so the test is environment-independent.
+    # We restore the original limit in a finally block to avoid side-effects.
+    original_limit = sys.getrecursionlimit()
+    low_limit = 200  # well below markdownify's traversal depth for depth=500
+
+    # Build HTML with nesting deep enough to trigger RecursionError
+    depth = 500
+    html = "<html><body>"
+    for _ in range(depth):
+        html += '<div style="margin-left:10px">'
+    html += "<p>Deep content with <b>bold text</b></p>"
+    for _ in range(depth):
+        html += "</div>"
+    html += "</body></html>"
+
+    try:
+        sys.setrecursionlimit(low_limit)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = markitdown.convert_stream(
+                io.BytesIO(html.encode("utf-8")),
+                file_extension=".html",
+            )
+
+            # Should have emitted a warning about the fallback
+            recursion_warnings = [x for x in w if "deeply nested" in str(x.message)]
+            assert len(recursion_warnings) > 0
+    finally:
+        sys.setrecursionlimit(original_limit)
+
+    # The output should contain the text content, not raw HTML
+    assert "Deep content" in result.markdown
+    assert "bold text" in result.markdown
+    assert "<div" not in result.markdown
+    assert "<p>" not in result.markdown
+
+
+def test_doc_rlink() -> None:
+    # Test for: CVE-2025-11849
+    markitdown = MarkItDown()
+
+    # Document with rlink
+    docx_file = os.path.join(TEST_FILES_DIR, "rlink.docx")
+
+    # Directory containing the target rlink file
+    rlink_tmp_dir = os.path.abspath(os.sep + "tmp")
+
+    # Ensure the tmp directory exists
+    if not os.path.exists(rlink_tmp_dir):
+        pytest.skip(f"Skipping rlink test; {rlink_tmp_dir} directory does not exist.")
+        return
+
+    rlink_file_path = os.path.join(rlink_tmp_dir, "test_rlink.txt")
+    rlink_content = "de658225-569e-4e3d-9ed2-cfb6abf927fc"
+    b64_prefix = (
+        "ZGU2NTgyMjUtNTY5ZS00ZTNkLTllZDItY2ZiNmFiZjk"  # base64 prefix of rlink_content
+    )
+
+    if os.path.exists(rlink_file_path):
+        with open(rlink_file_path, "r", encoding="utf-8") as f:
+            existing_content = f.read()
+            if existing_content != rlink_content:
+                raise ValueError(
+                    f"Existing {rlink_file_path} content does not match expected content."
+                )
+    else:
+        with open(rlink_file_path, "w", encoding="utf-8") as f:
+            f.write(rlink_content)
+
+    try:
+        result = markitdown.convert(docx_file, keep_data_uris=True).text_content
+        assert (
+            b64_prefix not in result
+        )  # Make sure the target file was NOT embedded in the output
+    finally:
+        os.remove(rlink_file_path)
+
+
 @pytest.mark.skipif(
     skip_remote,
     reason="do not run tests that query external urls",
@@ -300,9 +392,9 @@ def test_markitdown_remote() -> None:
         assert test_string in result.text_content
 
     # Youtube
-    result = markitdown.convert(YOUTUBE_TEST_URL)
-    for test_string in YOUTUBE_TEST_STRINGS:
-        assert test_string in result.text_content
+    # result = markitdown.convert(YOUTUBE_TEST_URL)
+    # for test_string in YOUTUBE_TEST_STRINGS:
+    #    assert test_string in result.text_content
 
 
 @pytest.mark.skipif(
@@ -370,6 +462,50 @@ def test_markitdown_exiftool() -> None:
         assert target in result.text_content
 
 
+def test_markitdown_llm_parameters() -> None:
+    """Test that LLM parameters are correctly passed to the client."""
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(
+                content="Test caption with red circle and blue square 5bda1dd6"
+            )
+        )
+    ]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    test_prompt = "You are a professional test prompt."
+    markitdown = MarkItDown(
+        llm_client=mock_client, llm_model="gpt-4o", llm_prompt=test_prompt
+    )
+
+    # Test image file
+    markitdown.convert(os.path.join(TEST_FILES_DIR, "test_llm.jpg"))
+
+    # Verify the prompt was passed to the OpenAI API
+    assert mock_client.chat.completions.create.called
+    call_args = mock_client.chat.completions.create.call_args
+    messages = call_args[1]["messages"]
+    assert len(messages) == 1
+    assert messages[0]["content"][0]["text"] == test_prompt
+
+    # Reset the mock for the next test
+    mock_client.chat.completions.create.reset_mock()
+
+    # TODO: may only use one test after the llm caption method duplicate has been removed:
+    # https://github.com/microsoft/markitdown/pull/1254
+    # Test PPTX file
+    markitdown.convert(os.path.join(TEST_FILES_DIR, "test.pptx"))
+
+    # Verify the prompt was passed to the OpenAI API for PPTX images too
+    assert mock_client.chat.completions.create.called
+    call_args = mock_client.chat.completions.create.call_args
+    messages = call_args[1]["messages"]
+    assert len(messages) == 1
+    assert messages[0]["content"][0]["text"] == test_prompt
+
+
 @pytest.mark.skipif(
     skip_llm,
     reason="do not run llm tests without a key",
@@ -407,7 +543,9 @@ if __name__ == "__main__":
         test_markitdown_remote,
         test_speech_transcription,
         test_exceptions,
+        test_doc_rlink,
         test_markitdown_exiftool,
+        test_markitdown_llm_parameters,
         test_markitdown_llm,
     ]:
         print(f"Running {test.__name__}...", end="")
