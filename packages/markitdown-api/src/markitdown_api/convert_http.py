@@ -1,7 +1,9 @@
 from typing import Annotated, Any
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from fastapi import Body, APIRouter
+from requests.utils import CaseInsensitiveDict
 
 from markitdown import DocumentConverterResult, StreamInfo
 from markitdown_api._utils import (
@@ -22,17 +24,36 @@ from markitdown_api.commons import should_verify_http_ssl
 TAG = "Convert Http"
 
 
+def _same_origin_referer(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, "/", "", ""))
+
+
+def _has_header(headers: dict | None, header_name: str) -> bool:
+    return header_name in CaseInsensitiveDict(headers or {})
+
+
+def _headers_with_same_origin_referer(url: str, headers: dict | None) -> dict:
+    request_headers = dict(headers or {})
+    if not _has_header(request_headers, "Referer"):
+        request_headers["Referer"] = _same_origin_referer(url)
+    return request_headers
+
+
 class HttpApiConverter(ApiConverter):
     def __init__(self, request: ConvertHttpRequest):
         super().__init__(request)
 
-    def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
-        response = requests.request(
+    def _request(self, headers: dict | None) -> requests.Response:
+        return requests.request(
             method=self.request.method.value,
             url=self.request.url,
-            headers=self.request.headers,
+            headers=_headers_with_same_origin_referer(self.request.url, headers),
             verify=should_verify_http_ssl(),
         )
+
+    def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
+        response = self._request(headers=self.request.headers)
         data_size = len(response.content)
         last_modified = _parse_last_modified_timestamp(response.headers)
         mimetype = _parse_mime_type_from_content_type(
