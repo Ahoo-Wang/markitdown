@@ -41,7 +41,7 @@ def _convert_and_capture_http_request(monkeypatch):
     return request_calls[0]
 
 
-def test_http_converter_disables_ssl_verification_by_default(monkeypatch):
+def test_http_converter_enables_ssl_verification_by_default(monkeypatch):
     monkeypatch.delenv(HTTP_VERIFY_SSL_ENV, raising=False)
 
     request_call = _convert_and_capture_http_request(monkeypatch)
@@ -50,11 +50,11 @@ def test_http_converter_disables_ssl_verification_by_default(monkeypatch):
         "method": "get",
         "url": "https://example.invalid/",
         "headers": {"Accept": "text/html"},
-        "verify": False,
+        "verify": True,
     }
 
 
-def test_http_converter_enables_ssl_verification_when_configured(monkeypatch):
+def test_http_converter_enables_ssl_verification_when_configured_true(monkeypatch):
     monkeypatch.setenv(HTTP_VERIFY_SSL_ENV, "true")
 
     request_call = _convert_and_capture_http_request(monkeypatch)
@@ -64,4 +64,17 @@ def test_http_converter_enables_ssl_verification_when_configured(monkeypatch):
         "url": "https://example.invalid/",
         "headers": {"Accept": "text/html"},
         "verify": True,
+    }
+
+
+def test_http_converter_disables_ssl_verification_when_configured_false(monkeypatch):
+    monkeypatch.setenv(HTTP_VERIFY_SSL_ENV, "false")
+
+    request_call = _convert_and_capture_http_request(monkeypatch)
+
+    assert request_call == {
+        "method": "get",
+        "url": "https://example.invalid/",
+        "headers": {"Accept": "text/html"},
+        "verify": False,
     }

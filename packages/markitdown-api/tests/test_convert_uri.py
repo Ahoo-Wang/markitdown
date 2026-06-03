@@ -35,17 +35,25 @@ def _convert_and_capture_session_verify(monkeypatch):
     return captured["markitdown"]._requests_session.verify
 
 
-def test_uri_converter_disables_ssl_verification_by_default(monkeypatch):
+def test_uri_converter_enables_ssl_verification_by_default(monkeypatch):
     monkeypatch.delenv(HTTP_VERIFY_SSL_ENV, raising=False)
 
     verify = _convert_and_capture_session_verify(monkeypatch)
 
-    assert verify is False
+    assert verify is True
 
 
-def test_uri_converter_enables_ssl_verification_when_configured(monkeypatch):
+def test_uri_converter_enables_ssl_verification_when_configured_true(monkeypatch):
     monkeypatch.setenv(HTTP_VERIFY_SSL_ENV, "true")
 
     verify = _convert_and_capture_session_verify(monkeypatch)
 
     assert verify is True
+
+
+def test_uri_converter_disables_ssl_verification_when_configured_false(monkeypatch):
+    monkeypatch.setenv(HTTP_VERIFY_SSL_ENV, "false")
+
+    verify = _convert_and_capture_session_verify(monkeypatch)
+
+    assert verify is False

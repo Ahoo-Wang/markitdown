@@ -7,7 +7,7 @@ from markitdown import MarkItDown
 from markitdown_api.api_types import LlmOptions, ConvertRequest
 
 HTTP_VERIFY_SSL_ENV = "MARKITDOWN_API_HTTP_VERIFY_SSL"
-TRUE_VALUES = {"1", "true", "yes", "on"}
+FALSE_VALUES = {"0", "false", "no", "off"}
 
 
 def is_blank(s: str) -> bool:
@@ -22,7 +22,9 @@ def blank_then_none(s: str) -> str | None:
 
 def should_verify_http_ssl() -> bool:
     value = os.environ.get(HTTP_VERIFY_SSL_ENV)
-    return value is not None and value.strip().lower() in TRUE_VALUES
+    if value is None:
+        return True
+    return value.strip().lower() not in FALSE_VALUES
 
 
 def configure_markitdown_http_ssl(markitdown: MarkItDown) -> None:
