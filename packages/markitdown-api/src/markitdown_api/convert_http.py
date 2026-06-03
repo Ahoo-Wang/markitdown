@@ -17,6 +17,7 @@ from markitdown_api.api_types import (
 )
 from markitdown_api.convert_http_request import ConvertHttpRequest
 from markitdown_api.convert_yuque_api import YuQueApiConverter
+from markitdown_api.commons import should_verify_http_ssl
 
 TAG = "Convert Http"
 
@@ -30,6 +31,7 @@ class HttpApiConverter(ApiConverter):
             method=self.request.method.value,
             url=self.request.url,
             headers=self.request.headers,
+            verify=should_verify_http_ssl(),
         )
         data_size = len(response.content)
         last_modified = _parse_last_modified_timestamp(response.headers)

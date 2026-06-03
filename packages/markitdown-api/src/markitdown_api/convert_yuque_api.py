@@ -17,6 +17,7 @@ from markitdown_api.api_types import (
     ConvertResponse,
     StreamMetadata,
 )
+from markitdown_api.commons import should_verify_http_ssl
 from markitdown_api.convert_http_request import ConvertHttpRequest
 
 TAG = "Convert YuQue Doc"
@@ -37,6 +38,7 @@ class YuQueApiConverter(ApiConverter):
         response = requests.get(
             url=self.request.url,
             headers=self.request.headers,
+            verify=should_verify_http_ssl(),
         )
         result = response.json()
         if response.status_code != 200:
@@ -126,7 +128,7 @@ async def convert_yuque_book(url: str):
 
 
 def extract_yuque_app_data_url(url):
-    response = requests.get(url=url)
+    response = requests.get(url=url, verify=should_verify_http_ssl())
     result = response.content.decode("utf-8")
     if response.status_code != 200:
         raise Exception(f"Failed to get YuQue API URL: {response.status_code} {result}")
