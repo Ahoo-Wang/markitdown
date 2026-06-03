@@ -10,6 +10,7 @@ from markitdown_api.api_types import (
     MarkdownResponse,
     ConvertResponse,
 )
+from markitdown_api.commons import configure_markitdown_http_ssl
 
 TAG = "Convert Uri"
 
@@ -33,6 +34,7 @@ class UriApiConverter(ApiConverter):
 
     def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
         stream_info = StreamInfo(charset=self.request.charset)
+        configure_markitdown_http_ssl(self.markitdown)
         return self.markitdown.convert_uri(
             self.request.uri, stream_info=stream_info, **kwargs
         )

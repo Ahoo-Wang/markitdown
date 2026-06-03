@@ -1,9 +1,8 @@
 from markitdown import DocumentConverterResult
 
+from markitdown_api.commons import HTTP_VERIFY_SSL_ENV
 from markitdown_api.convert_http import HttpApiConverter
 from markitdown_api.convert_http_request import ConvertHttpRequest
-
-VERIFY_SSL_ENV = "MARKITDOWN_API_HTTP_VERIFY_SSL"
 
 
 def _convert_and_capture_http_request(monkeypatch):
@@ -43,7 +42,7 @@ def _convert_and_capture_http_request(monkeypatch):
 
 
 def test_http_converter_disables_ssl_verification_by_default(monkeypatch):
-    monkeypatch.delenv(VERIFY_SSL_ENV, raising=False)
+    monkeypatch.delenv(HTTP_VERIFY_SSL_ENV, raising=False)
 
     request_call = _convert_and_capture_http_request(monkeypatch)
 
@@ -56,7 +55,7 @@ def test_http_converter_disables_ssl_verification_by_default(monkeypatch):
 
 
 def test_http_converter_enables_ssl_verification_when_configured(monkeypatch):
-    monkeypatch.setenv(VERIFY_SSL_ENV, "true")
+    monkeypatch.setenv(HTTP_VERIFY_SSL_ENV, "true")
 
     request_call = _convert_and_capture_http_request(monkeypatch)
 
