@@ -52,7 +52,7 @@ class ConvertRequest(BaseModel):
     )
     rag: RagOptions = Field(default_factory=RagOptions, description="RAG options")
     keep_data_uris: bool = Field(
-        default=True,
+        default=False,
         description="If keep_data_uris is True, use base64 encoding for images",
     )
     strict: bool = Field(

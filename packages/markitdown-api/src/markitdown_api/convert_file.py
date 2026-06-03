@@ -59,7 +59,7 @@ async def convert_file(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = True,
+    keep_data_uris: Annotated[bool, Form()] = False,
     rag_clean: Annotated[bool, Form()] = True,
     rag_heading_keywords: Annotated[str, Form()] = "",
 ):
@@ -88,7 +88,7 @@ async def convert_file_markdown(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = True,
+    keep_data_uris: Annotated[bool, Form()] = False,
     rag_clean: Annotated[bool, Form()] = True,
     rag_heading_keywords: Annotated[str, Form()] = "",
 ):
