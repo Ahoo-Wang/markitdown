@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import inspect
 import logging
 from datetime import datetime, timezone
 
@@ -8,6 +9,7 @@ import pytest
 from markitdown import DocumentConverterResult
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import ConvertRequest
+from markitdown_api.convert_file import convert_file, convert_file_markdown
 from markitdown_api.oss_image_upload import (
     OssImageUploader,
     _credentials_provider_from_environment,
@@ -171,8 +173,16 @@ def test_oss_credentials_provider_missing_secret_mentions_both_supported_names(
         _credentials_provider_from_environment(object())
 
 
-def test_convert_request_defaults_to_keep_data_uris_for_oss_fallback():
-    assert ConvertRequest().keep_data_uris is True
+def test_convert_request_disables_keep_data_uris_by_default():
+    assert ConvertRequest().keep_data_uris is False
+
+
+def test_file_upload_endpoints_disable_keep_data_uris_by_default():
+    assert inspect.signature(convert_file).parameters["keep_data_uris"].default is False
+    assert (
+        inspect.signature(convert_file_markdown).parameters["keep_data_uris"].default
+        is False
+    )
 
 
 def test_api_converter_rewrites_embedded_images_after_conversion(monkeypatch):
@@ -197,7 +207,7 @@ def test_api_converter_rewrites_embedded_images_after_conversion(monkeypatch):
 
     response = StubApiConverter(ConvertRequest()).convert()
 
-    assert seen_kwargs["keep_data_uris"] is True
+    assert seen_kwargs["keep_data_uris"] is False
     assert (
         response.result.markdown == "![chart](https://cdn.example.com/images/chart.png)"
     )
