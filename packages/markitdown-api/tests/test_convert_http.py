@@ -49,7 +49,10 @@ def test_http_converter_enables_ssl_verification_by_default(monkeypatch):
     assert request_call == {
         "method": "get",
         "url": "https://example.invalid/",
-        "headers": {"Accept": "text/html"},
+        "headers": {
+            "Accept": "text/html",
+            "Referer": "https://example.invalid/",
+        },
         "verify": True,
     }
 
@@ -62,7 +65,10 @@ def test_http_converter_enables_ssl_verification_when_configured_true(monkeypatc
     assert request_call == {
         "method": "get",
         "url": "https://example.invalid/",
-        "headers": {"Accept": "text/html"},
+        "headers": {
+            "Accept": "text/html",
+            "Referer": "https://example.invalid/",
+        },
         "verify": True,
     }
 
@@ -75,6 +81,98 @@ def test_http_converter_disables_ssl_verification_when_configured_false(monkeypa
     assert request_call == {
         "method": "get",
         "url": "https://example.invalid/",
-        "headers": {"Accept": "text/html"},
+        "headers": {
+            "Accept": "text/html",
+            "Referer": "https://example.invalid/",
+        },
         "verify": False,
     }
+
+
+def test_http_converter_adds_same_origin_referer_by_default(monkeypatch):
+    request_calls = []
+    url = "https://downloads.example.test/_Resources/images/document.pdf"
+
+    class FakeResponse:
+        content = b"%PDF-1.4\n"
+        headers = {"Content-Type": "application/pdf"}
+
+    class FakeMarkItDown:
+        def convert_response(self, response, stream_info, **kwargs):
+            return DocumentConverterResult(markdown="ok")
+
+    def fake_request(**kwargs):
+        request_calls.append(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.build_markitdown",
+        lambda request: FakeMarkItDown(),
+    )
+    monkeypatch.setattr("markitdown_api.convert_http.requests.request", fake_request)
+
+    result = HttpApiConverter(
+        ConvertHttpRequest(
+            url=url,
+            headers={
+                "user-agent": "Mozilla/5.0",
+            },
+        )
+    )._internal_convert()
+
+    assert result.markdown == "ok"
+    assert request_calls == [
+        {
+            "method": "get",
+            "url": url,
+            "headers": {
+                "user-agent": "Mozilla/5.0",
+                "Referer": "https://downloads.example.test/",
+            },
+            "verify": True,
+        },
+    ]
+
+
+def test_http_converter_preserves_explicit_referer(monkeypatch):
+    request_calls = []
+    url = "https://downloads.example.test/_Resources/images/document.pdf"
+
+    class FakeResponse:
+        content = b"%PDF-1.4\n"
+        headers = {"Content-Type": "application/pdf"}
+
+    class FakeMarkItDown:
+        def convert_response(self, response, stream_info, **kwargs):
+            return DocumentConverterResult(markdown="ok")
+
+    def fake_request(**kwargs):
+        request_calls.append(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.build_markitdown",
+        lambda request: FakeMarkItDown(),
+    )
+    monkeypatch.setattr("markitdown_api.convert_http.requests.request", fake_request)
+
+    result = HttpApiConverter(
+        ConvertHttpRequest(
+            url=url,
+            headers={
+                "referer": "https://example.com/custom",
+            },
+        )
+    )._internal_convert()
+
+    assert result.markdown == "ok"
+    assert request_calls == [
+        {
+            "method": "get",
+            "url": url,
+            "headers": {
+                "referer": "https://example.com/custom",
+            },
+            "verify": True,
+        },
+    ]
