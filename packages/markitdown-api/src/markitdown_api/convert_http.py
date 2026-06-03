@@ -1,3 +1,4 @@
+import os
 from typing import Annotated, Any
 
 import requests
@@ -19,6 +20,13 @@ from markitdown_api.convert_http_request import ConvertHttpRequest
 from markitdown_api.convert_yuque_api import YuQueApiConverter
 
 TAG = "Convert Http"
+VERIFY_SSL_ENV = "MARKITDOWN_API_HTTP_VERIFY_SSL"
+TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def _should_verify_ssl() -> bool:
+    value = os.environ.get(VERIFY_SSL_ENV)
+    return value is not None and value.strip().lower() in TRUE_VALUES
 
 
 class HttpApiConverter(ApiConverter):
@@ -30,7 +38,7 @@ class HttpApiConverter(ApiConverter):
             method=self.request.method.value,
             url=self.request.url,
             headers=self.request.headers,
-            verify=False,
+            verify=_should_verify_ssl(),
         )
         data_size = len(response.content)
         last_modified = _parse_last_modified_timestamp(response.headers)
