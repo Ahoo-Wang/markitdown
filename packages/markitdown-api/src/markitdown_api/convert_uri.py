@@ -10,7 +10,7 @@ from markitdown_api.api_types import (
     MarkdownResponse,
     ConvertResponse,
 )
-from markitdown_api.commons import configure_markitdown_http_ssl
+from markitdown_api.commons import should_verify_http_ssl
 
 TAG = "Convert Uri"
 
@@ -34,7 +34,20 @@ class UriApiConverter(ApiConverter):
 
     def _internal_convert(self, **kwargs: Any) -> DocumentConverterResult:
         stream_info = StreamInfo(charset=self.request.charset)
-        configure_markitdown_http_ssl(self.markitdown)
+        if self.request.uri.startswith("http:") or self.request.uri.startswith(
+            "https:"
+        ):
+            response = self.markitdown._requests_session.get(
+                self.request.uri,
+                stream=True,
+                verify=should_verify_http_ssl(),
+            )
+            response.raise_for_status()
+            return self.markitdown.convert_response(
+                response,
+                stream_info=stream_info,
+                **kwargs,
+            )
         return self.markitdown.convert_uri(
             self.request.uri, stream_info=stream_info, **kwargs
         )

@@ -27,12 +27,6 @@ def should_verify_http_ssl() -> bool:
     return value.strip().lower() not in FALSE_VALUES
 
 
-def configure_markitdown_http_ssl(markitdown: MarkItDown) -> None:
-    requests_session = getattr(markitdown, "_requests_session", None)
-    if requests_session is not None:
-        requests_session.verify = should_verify_http_ssl()
-
-
 def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:
     base_url = api_key = llm_client = llm_model = llm_prompt = None
     if llm_options:
