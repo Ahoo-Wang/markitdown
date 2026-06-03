@@ -30,6 +30,7 @@ class HttpApiConverter(ApiConverter):
             method=self.request.method.value,
             url=self.request.url,
             headers=self.request.headers,
+            verify=False,
         )
         data_size = len(response.content)
         last_modified = _parse_last_modified_timestamp(response.headers)
