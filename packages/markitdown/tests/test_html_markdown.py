@@ -105,6 +105,31 @@ def test_empty_anchor_title_fallback_escapes_link_text():
     assert result.markdown == expected_link
 
 
+def test_empty_anchor_href_fallback_escapes_link_text():
+    html = """
+    <html>
+      <body>
+        <a href="/a](bad).pdf"></a>
+      </body>
+    </html>
+    """
+
+    result = MarkItDown().convert_stream(
+        BytesIO(html.encode("utf-8")),
+        stream_info=StreamInfo(
+            mimetype="text/html",
+            charset="utf-8",
+            url="https://example.com/products/",
+        ),
+    )
+
+    expected_link = (
+        r"[https://example.com/a\](bad).pdf]" "(https://example.com/a%5D%28bad%29.pdf)"
+    )
+
+    assert result.markdown == expected_link
+
+
 def test_empty_anchor_href_fallback_ignores_unsupported_schemes():
     html = """
     <html>
@@ -125,6 +150,54 @@ def test_empty_anchor_href_fallback_ignores_unsupported_schemes():
     )
 
     assert result.markdown == ""
+
+
+def test_empty_anchor_in_pre_remains_empty():
+    html = """
+    <html>
+      <body>
+        <pre><a href="/download.pdf"></a></pre>
+      </body>
+    </html>
+    """
+
+    result = MarkItDown().convert_stream(
+        BytesIO(html.encode("utf-8")),
+        stream_info=StreamInfo(
+            mimetype="text/html",
+            charset="utf-8",
+            url="https://example.com/products/",
+        ),
+    )
+
+    assert result.markdown == ""
+
+
+def test_empty_anchor_href_fallback_preserves_default_title():
+    html = """
+    <html>
+      <body>
+        <a href="/download.pdf"></a>
+      </body>
+    </html>
+    """
+
+    result = MarkItDown().convert_stream(
+        BytesIO(html.encode("utf-8")),
+        stream_info=StreamInfo(
+            mimetype="text/html",
+            charset="utf-8",
+            url="https://example.com/products/",
+        ),
+        default_title=True,
+    )
+
+    expected_link = (
+        "[https://example.com/download.pdf]"
+        '(https://example.com/download.pdf "https://example.com/download.pdf")'
+    )
+
+    assert result.markdown == expected_link
 
 
 def test_html_path():

@@ -50,6 +50,9 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     ):
         """Same as usual converter, but removes Javascript links and escapes URIs."""
         prefix, suffix, text = markdownify.chomp(text)  # type: ignore
+        if el.find_parent("pre") is not None:
+            return text
+
         raw_href = el.get("href")
         if self._has_unsupported_scheme(raw_href):
             return "" if not text else "%s%s%s" % (prefix, text, suffix)
@@ -63,13 +66,9 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
                 el, raw_href, title
             ):
                 return ""
-            text = self._fallback_link_text(title, href)
-            title_used_as_text = bool(text)
+            text, title_used_as_text = self._fallback_link_text(title, href)
             if not text:
                 return ""
-
-        if el.find_parent("pre") is not None:
-            return text
 
         # Escape URIs and skip non-http or file schemes
         if href:
@@ -115,12 +114,12 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
 
         return bool(scheme and scheme not in cls._SUPPORTED_LINK_SCHEMES)
 
-    def _fallback_link_text(self, title: Any, href: str) -> str:
+    def _fallback_link_text(self, title: Any, href: str) -> tuple[str, bool]:
         if isinstance(title, str) and title.strip():
             text = re.sub(r"\s+", " ", title.strip())
-            return self._escape_link_text(text)
+            return self._escape_link_text(text), True
 
-        return href
+        return self._escape_link_text(href), False
 
     def _escape_link_text(self, text: str) -> str:
         text = text.replace("\\", "\\\\")
