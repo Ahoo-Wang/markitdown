@@ -48,15 +48,23 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     ):
         """Same as usual converter, but removes Javascript links and escapes URIs."""
         prefix, suffix, text = markdownify.chomp(text)  # type: ignore
+        raw_href = el.get("href")
+        href = raw_href
+        href = convert_relative_to_absolute_path(self.options["url"], href)
+        title = el.get("title")
+        title_used_as_text = False
         if not text:
-            return ""
+            if self._has_previous_duplicate_empty_anchor(el, raw_href, title):
+                return ""
+            text = title.strip() if title else ""
+            title_used_as_text = bool(text)
+            if not text and href:
+                text = href
+            if not text:
+                return ""
 
         if el.find_parent("pre") is not None:
             return text
-
-        href = el.get("href")
-        href = convert_relative_to_absolute_path(self.options["url"], href)
-        title = el.get("title")
 
         # Escape URIs and skip non-http or file schemes
         if href:
@@ -79,12 +87,38 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
             return "<%s>" % href
         if self.options["default_title"] and not title:
             title = href
-        title_part = ' "%s"' % title.replace('"', r"\"") if title else ""
+        title_part = (
+            ' "%s"' % title.replace('"', r"\"")
+            if title and not title_used_as_text
+            else ""
+        )
         return (
             "%s[%s](%s%s)%s" % (prefix, text, href, title_part, suffix)
             if href
             else text
         )
+
+    @staticmethod
+    def _has_previous_duplicate_empty_anchor(el: Any, href: Any, title: Any) -> bool:
+        if not href or not hasattr(el, "find_previous_siblings"):
+            return False
+
+        normalized_title = title.strip() if isinstance(title, str) else title
+        for sibling in el.find_previous_siblings("a"):
+            sibling_title = sibling.get("title")
+            normalized_sibling_title = (
+                sibling_title.strip()
+                if isinstance(sibling_title, str)
+                else sibling_title
+            )
+            if (
+                sibling.get("href") == href
+                and normalized_sibling_title == normalized_title
+                and not sibling.get_text(strip=True)
+            ):
+                return True
+
+        return False
 
     def convert_img(
         self,
