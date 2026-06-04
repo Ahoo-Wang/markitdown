@@ -17,6 +17,8 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     - Ensuring URIs are properly escaped, and do not conflict with Markdown syntax
     """
 
+    _SUPPORTED_LINK_SCHEMES = {"http", "https", "file"}
+
     def __init__(self, **options: Any):
         options["heading_style"] = options.get("heading_style", markdownify.ATX)
         options["keep_data_uris"] = options.get("keep_data_uris", False)
@@ -48,15 +50,25 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     ):
         """Same as usual converter, but removes Javascript links and escapes URIs."""
         prefix, suffix, text = markdownify.chomp(text)  # type: ignore
-        if not text:
-            return ""
-
         if el.find_parent("pre") is not None:
             return text
 
-        href = el.get("href")
+        raw_href = el.get("href")
+        if self._has_unsupported_scheme(raw_href):
+            return "" if not text else "%s%s%s" % (prefix, text, suffix)
+
+        href = raw_href
         href = convert_relative_to_absolute_path(self.options["url"], href)
         title = el.get("title")
+        title_used_as_text = False
+        if not text:
+            if not href or self._has_previous_duplicate_empty_anchor(
+                el, raw_href, title
+            ):
+                return ""
+            text, title_used_as_text = self._fallback_link_text(title, href)
+            if not text:
+                return ""
 
         # Escape URIs and skip non-http or file schemes
         if href:
@@ -79,12 +91,67 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
             return "<%s>" % href
         if self.options["default_title"] and not title:
             title = href
-        title_part = ' "%s"' % title.replace('"', r"\"") if title else ""
+        title_part = (
+            ' "%s"' % title.replace('"', r"\"")
+            if title and not title_used_as_text
+            else ""
+        )
         return (
             "%s[%s](%s%s)%s" % (prefix, text, href, title_part, suffix)
             if href
             else text
         )
+
+    @classmethod
+    def _has_unsupported_scheme(cls, href: Any) -> bool:
+        if not isinstance(href, str) or not href:
+            return False
+
+        try:
+            scheme = urlparse(href).scheme.lower()
+        except ValueError:
+            return True
+
+        return bool(scheme and scheme not in cls._SUPPORTED_LINK_SCHEMES)
+
+    def _fallback_link_text(self, title: Any, href: str) -> tuple[str, bool]:
+        if isinstance(title, str) and title.strip():
+            text = re.sub(r"\s+", " ", title.strip())
+            return self._escape_link_text(text), True
+
+        return self._escape_link_text(href), False
+
+    def _escape_link_text(self, text: str) -> str:
+        text = text.replace("\\", "\\\\")
+        text = text.replace("[", r"\[")
+        text = text.replace("]", r"\]")
+        if self.options["escape_asterisks"]:
+            text = text.replace("*", r"\*")
+        if self.options["escape_underscores"]:
+            text = text.replace("_", r"\_")
+        return text
+
+    @staticmethod
+    def _has_previous_duplicate_empty_anchor(el: Any, href: Any, title: Any) -> bool:
+        if not href or not hasattr(el, "find_previous_siblings"):
+            return False
+
+        normalized_title = title.strip() if isinstance(title, str) else title
+        for sibling in el.find_previous_siblings("a"):
+            sibling_title = sibling.get("title")
+            normalized_sibling_title = (
+                sibling_title.strip()
+                if isinstance(sibling_title, str)
+                else sibling_title
+            )
+            if (
+                sibling.get("href") == href
+                and normalized_sibling_title == normalized_title
+                and not sibling.get_text(strip=True)
+            ):
+                return True
+
+        return False
 
     def convert_img(
         self,
