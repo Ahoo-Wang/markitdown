@@ -55,6 +55,78 @@ def test_duplicate_empty_anchors_with_same_href_are_emitted_once():
     assert result.markdown.count(expected_link) == 1
 
 
+def test_empty_anchor_without_href_does_not_emit_title_text():
+    html = """
+    <html>
+      <body>
+        <a id="section" title="Section title"></a>
+      </body>
+    </html>
+    """
+
+    result = MarkItDown().convert_stream(
+        BytesIO(html.encode("utf-8")),
+        stream_info=StreamInfo(
+            mimetype="text/html",
+            charset="utf-8",
+            url="https://example.com/products/",
+        ),
+    )
+
+    assert result.markdown == ""
+
+
+def test_empty_anchor_title_fallback_escapes_link_text():
+    html = """
+    <html>
+      <body>
+        <a
+          href="/download.pdf"
+          title="A ](https://bad.example)
+                 second line"
+        ></a>
+      </body>
+    </html>
+    """
+
+    result = MarkItDown().convert_stream(
+        BytesIO(html.encode("utf-8")),
+        stream_info=StreamInfo(
+            mimetype="text/html",
+            charset="utf-8",
+            url="https://example.com/products/",
+        ),
+    )
+
+    expected_link = (
+        r"[A \](https://bad.example) second line]" "(https://example.com/download.pdf)"
+    )
+
+    assert result.markdown == expected_link
+
+
+def test_empty_anchor_href_fallback_ignores_unsupported_schemes():
+    html = """
+    <html>
+      <body>
+        <a href="javascript:alert(1)"></a>
+        <a href="mailto:test@example.com" title="Email"></a>
+      </body>
+    </html>
+    """
+
+    result = MarkItDown().convert_stream(
+        BytesIO(html.encode("utf-8")),
+        stream_info=StreamInfo(
+            mimetype="text/html",
+            charset="utf-8",
+            url="https://example.com/products/",
+        ),
+    )
+
+    assert result.markdown == ""
+
+
 def test_html_path():
     result = (
         MarkItDown()
