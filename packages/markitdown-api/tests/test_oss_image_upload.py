@@ -2,9 +2,12 @@ import base64
 import hashlib
 import inspect
 import logging
+import asyncio
+from io import BytesIO
 from datetime import datetime, timezone
 
 import pytest
+from fastapi import UploadFile
 
 from markitdown import DocumentConverterResult
 from markitdown_api.api_converter import ApiConverter
@@ -15,6 +18,8 @@ from markitdown_api.oss_image_upload import (
     _credentials_provider_from_environment,
     replace_data_images_with_oss_urls,
 )
+
+KEEP_DATA_URIS_ENV = "MARKITDOWN_API_KEEP_DATA_URIS"
 
 
 def test_replace_data_images_uploads_and_rewrites_markdown_image():
@@ -97,7 +102,8 @@ def test_replace_data_images_keeps_data_uri_when_single_upload_fails():
     )
 
 
-def test_oss_image_uploader_uses_stable_hash_key_and_public_url():
+def test_oss_image_uploader_uses_stable_hash_key_and_public_url(monkeypatch):
+    monkeypatch.delenv("OSS_PUBLIC_BASE_URL", raising=False)
     image_bytes = b"fake-png-bytes"
     digest = hashlib.sha256(image_bytes).hexdigest()
     fixed_now = datetime(2026, 6, 1, tzinfo=timezone.utc)
@@ -173,19 +179,87 @@ def test_oss_credentials_provider_missing_secret_mentions_both_supported_names(
         _credentials_provider_from_environment(object())
 
 
-def test_convert_request_disables_keep_data_uris_by_default():
+def test_convert_request_disables_keep_data_uris_by_default(monkeypatch):
+    monkeypatch.delenv(KEEP_DATA_URIS_ENV, raising=False)
+
     assert ConvertRequest().keep_data_uris is False
 
 
-def test_file_upload_endpoints_disable_keep_data_uris_by_default():
-    assert inspect.signature(convert_file).parameters["keep_data_uris"].default is False
+def test_convert_request_uses_keep_data_uris_env_default(monkeypatch):
+    monkeypatch.setenv(KEEP_DATA_URIS_ENV, "true")
+
+    assert ConvertRequest().keep_data_uris is True
+
+
+def test_convert_request_explicit_false_overrides_keep_data_uris_env(monkeypatch):
+    monkeypatch.setenv(KEEP_DATA_URIS_ENV, "true")
+
+    assert ConvertRequest(keep_data_uris=False).keep_data_uris is False
+
+
+def test_file_upload_endpoints_allow_keep_data_uris_env_default():
+    assert inspect.signature(convert_file).parameters["keep_data_uris"].default is None
     assert (
         inspect.signature(convert_file_markdown).parameters["keep_data_uris"].default
-        is False
+        is None
     )
 
 
+def test_file_upload_endpoint_uses_keep_data_uris_env_default(monkeypatch):
+    monkeypatch.setenv(KEEP_DATA_URIS_ENV, "true")
+    seen_keep_data_uris = []
+
+    class StubFileApiConverter:
+        def __init__(self, request):
+            seen_keep_data_uris.append(request.keep_data_uris)
+
+        def convert(self):
+            return "ok"
+
+    monkeypatch.setattr(
+        "markitdown_api.convert_file.FileApiConverter",
+        StubFileApiConverter,
+    )
+
+    response = asyncio.run(
+        convert_file(file=UploadFile(filename="test.txt", file=BytesIO(b"text")))
+    )
+
+    assert response == "ok"
+    assert seen_keep_data_uris == [True]
+
+
+def test_file_upload_endpoint_explicit_false_overrides_keep_data_uris_env(
+    monkeypatch,
+):
+    monkeypatch.setenv(KEEP_DATA_URIS_ENV, "true")
+    seen_keep_data_uris = []
+
+    class StubFileApiConverter:
+        def __init__(self, request):
+            seen_keep_data_uris.append(request.keep_data_uris)
+
+        def convert(self):
+            return "ok"
+
+    monkeypatch.setattr(
+        "markitdown_api.convert_file.FileApiConverter",
+        StubFileApiConverter,
+    )
+
+    response = asyncio.run(
+        convert_file(
+            file=UploadFile(filename="test.txt", file=BytesIO(b"text")),
+            keep_data_uris=False,
+        )
+    )
+
+    assert response == "ok"
+    assert seen_keep_data_uris == [False]
+
+
 def test_api_converter_rewrites_embedded_images_after_conversion(monkeypatch):
+    monkeypatch.delenv(KEEP_DATA_URIS_ENV, raising=False)
     image_bytes = b"fake-png-bytes"
     encoded = base64.b64encode(image_bytes).decode("ascii")
     markdown = f"![chart](data:image/png;base64,{encoded})"

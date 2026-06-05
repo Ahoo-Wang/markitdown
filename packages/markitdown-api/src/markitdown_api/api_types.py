@@ -3,6 +3,7 @@ from typing import List
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 from markitdown._llm_utils import get_llm_prompt
+from markitdown_api._env import default_keep_data_uris
 
 
 class LlmOptions(BaseModel):
@@ -52,7 +53,7 @@ class ConvertRequest(BaseModel):
     )
     rag: RagOptions = Field(default_factory=RagOptions, description="RAG options")
     keep_data_uris: bool = Field(
-        default=False,
+        default_factory=default_keep_data_uris,
         description="If keep_data_uris is True, use base64 encoding for images",
     )
     strict: bool = Field(
