@@ -1136,6 +1136,26 @@ def _extract_tables_from_words(page: Any) -> list[list[list[str]]]:
     return [table_rows]
 
 
+def _join_pdf_page_chunks(
+    page_chunks: list[dict[str, Any]], pdfminer_pages: list[str] | None = None
+) -> str:
+    pdfminer_pages = pdfminer_pages or []
+    markdown_chunks: list[str] = []
+
+    for page_idx, page_chunk in enumerate(page_chunks):
+        text = page_chunk["text"]
+        if page_chunk["kind"] == "plain" and page_idx < len(pdfminer_pages):
+            pdfminer_text = pdfminer_pages[page_idx].strip()
+            if pdfminer_text:
+                text = pdfminer_text
+
+        if text:
+            markdown_chunks.append(text)
+        markdown_chunks.extend(page_chunk["images"])
+
+    return "\n\n".join(markdown_chunks).strip()
+
+
 class PdfConverter(DocumentConverter):
     """
     Converts PDFs to Markdown.
@@ -1236,37 +1256,27 @@ class PdfConverter(DocumentConverter):
 
                     page.close()  # Free cached page data immediately
 
-            # If no pages had form-style content, use pdfminer for
-            # the whole document (better text spacing for prose).
-            if form_page_count == 0 and multi_column_page_count == 0:
+            if form_page_count == 0:
                 pdf_bytes.seek(0)
-                markdown = pdfminer.high_level.extract_text(pdf_bytes)
-                if image_chunks:
-                    image_markdown = "\n\n".join(image_chunks)
-                    markdown = "\n\n".join(
-                        chunk for chunk in [markdown.strip(), image_markdown] if chunk
+                pdfminer_markdown = pdfminer.high_level.extract_text(pdf_bytes)
+
+                # With no layout-sensitive pages, keep the original whole-document
+                # pdfminer output because it generally spaces normal prose best.
+                if multi_column_page_count == 0:
+                    markdown = pdfminer_markdown
+                    if image_chunks:
+                        image_markdown = "\n\n".join(image_chunks)
+                        markdown = "\n\n".join(
+                            chunk
+                            for chunk in [markdown.strip(), image_markdown]
+                            if chunk
+                        )
+                else:
+                    markdown = _join_pdf_page_chunks(
+                        page_chunks, _split_pdfminer_pages(pdfminer_markdown)
                     )
             else:
-                markdown_chunks: list[str] = []
-                pdfminer_pages: list[str] = []
-                if form_page_count == 0 and multi_column_page_count > 0:
-                    pdf_bytes.seek(0)
-                    pdfminer_pages = _split_pdfminer_pages(
-                        pdfminer.high_level.extract_text(pdf_bytes)
-                    )
-
-                for page_idx, page_chunk in enumerate(page_chunks):
-                    text = page_chunk["text"]
-                    if page_chunk["kind"] == "plain" and page_idx < len(pdfminer_pages):
-                        pdfminer_text = pdfminer_pages[page_idx].strip()
-                        if pdfminer_text:
-                            text = pdfminer_text
-
-                    if text:
-                        markdown_chunks.append(text)
-                    markdown_chunks.extend(page_chunk["images"])
-
-                markdown = "\n\n".join(markdown_chunks).strip()
+                markdown = _join_pdf_page_chunks(page_chunks)
 
         except Exception:
             # Fallback if pdfplumber fails
