@@ -75,6 +75,28 @@ def _make_plain_page():
     return page
 
 
+def _make_two_column_page():
+    """Create a mock plain-text page with two prose columns."""
+    page = MagicMock()
+    page.width = 612
+    page.height = 792
+    page.close = MagicMock()
+    page.extract_words.return_value = [
+        {"text": "Left heading", "x0": 60, "x1": 140, "top": 80, "bottom": 92},
+        {"text": "Right heading", "x0": 340, "x1": 430, "top": 80, "bottom": 92},
+        {"text": "Left body one", "x0": 60, "x1": 170, "top": 110, "bottom": 122},
+        {"text": "Right body one", "x0": 340, "x1": 460, "top": 110, "bottom": 122},
+        {"text": "Left body two", "x0": 60, "x1": 170, "top": 130, "bottom": 142},
+        {"text": "Right body two", "x0": 340, "x1": 460, "top": 130, "bottom": 142},
+    ]
+    page.extract_text.return_value = (
+        "Left heading Right heading\n"
+        "Left body one Right body one\n"
+        "Left body two Right body two"
+    )
+    return page
+
+
 class _FakePdfImageStream:
     def __init__(self, data: bytes, pdf_filter: str, **attrs):
         self.attrs = {"Filter": pdf_filter, **attrs}
@@ -207,6 +229,37 @@ class TestPdfMemoryOptimization:
             "plain-text PDFs should fall back to pdfminer"
         )
         assert result.text_content is not None
+
+    def test_two_column_plain_text_pdf_preserves_column_reading_order(self):
+        """Two-column prose should not be interleaved row by row."""
+        page = _make_two_column_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = (
+                "Left heading Right heading\n"
+                "Left body one Right body one\n"
+                "Left body two Right body two"
+            )
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+            )
+
+        assert result.text_content is not None
+        assert "Left heading\nLeft body one\nLeft body two" in result.text_content
+        assert "Right heading\nRight body one\nRight body two" in result.text_content
+        assert "Left body one Right body one" not in result.text_content
+        assert not mock_pdfminer.high_level.extract_text.called
 
     def test_plain_text_pdf_still_closes_all_pages(self):
         """Even for plain-text PDFs, page.close() must be called on every page."""

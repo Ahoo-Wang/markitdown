@@ -523,6 +523,120 @@ def _to_markdown_table(table: list[list[str]], include_separator: bool = True) -
     return "\n".join(md)
 
 
+def _group_words_by_y(
+    words: list[dict[str, Any]], y_tolerance: int = 5
+) -> list[list[dict[str, Any]]]:
+    rows_by_y: dict[float, list[dict[str, Any]]] = {}
+    for word in words:
+        top = _float_or_none(word.get("top"))
+        if top is None:
+            continue
+
+        y_key = round(top / y_tolerance) * y_tolerance
+        if y_key not in rows_by_y:
+            rows_by_y[y_key] = []
+        rows_by_y[y_key].append(word)
+
+    return [
+        sorted(row_words, key=lambda word: _float_or_none(word.get("x0")) or 0)
+        for _, row_words in sorted(rows_by_y.items())
+        if row_words
+    ]
+
+
+def _word_text(word: dict[str, Any]) -> str:
+    return str(word.get("text") or "").strip()
+
+
+def _join_word_text(words: list[dict[str, Any]]) -> str:
+    return " ".join(text for word in words if (text := _word_text(word))).strip()
+
+
+def _extract_multi_column_text_from_words(page: Any) -> str | None:
+    """
+    Extract prose from simple multi-column pages in column reading order.
+
+    pdfminer and pdfplumber's default extract_text() are usually better for
+    plain prose, but they can interleave independent columns that share similar
+    Y positions. This path is intentionally conservative: it only activates
+    when several rows show a consistent wide gutter between two text regions.
+    """
+    words = page.extract_words(keep_blank_chars=True, x_tolerance=3, y_tolerance=3)
+    if not words:
+        return None
+
+    rows = _group_words_by_y(words)
+    if len(rows) < 3:
+        return None
+
+    page_width = _float_or_none(getattr(page, "width", None)) or 612.0
+    min_gutter = max(64.0, page_width * 0.10)
+    split_candidates: list[float] = []
+
+    for row_words in rows:
+        if len(row_words) < 2:
+            continue
+
+        largest_gap = 0.0
+        largest_gap_midpoint: float | None = None
+        for previous_word, next_word in zip(row_words, row_words[1:]):
+            previous_x1 = _float_or_none(previous_word.get("x1"))
+            next_x0 = _float_or_none(next_word.get("x0"))
+            if previous_x1 is None or next_x0 is None:
+                continue
+
+            gap = next_x0 - previous_x1
+            if gap > largest_gap:
+                largest_gap = gap
+                largest_gap_midpoint = previous_x1 + (gap / 2)
+
+        if largest_gap >= min_gutter and largest_gap_midpoint is not None:
+            split_candidates.append(largest_gap_midpoint)
+
+    if len(split_candidates) < 3:
+        return None
+
+    split_candidates.sort()
+    split_x = split_candidates[len(split_candidates) // 2]
+
+    consistent_candidates = [
+        candidate
+        for candidate in split_candidates
+        if abs(candidate - split_x) <= max(36.0, page_width * 0.06)
+    ]
+    if len(consistent_candidates) < 3:
+        return None
+
+    left_lines: list[str] = []
+    right_lines: list[str] = []
+
+    for row_words in rows:
+        left_words = [
+            word
+            for word in row_words
+            if (_float_or_none(word.get("x0")) or 0.0) < split_x
+        ]
+        right_words = [
+            word
+            for word in row_words
+            if (_float_or_none(word.get("x0")) or 0.0) >= split_x
+        ]
+
+        left_text = _join_word_text(left_words)
+        right_text = _join_word_text(right_words)
+        if left_text:
+            left_lines.append(left_text)
+        if right_text:
+            right_lines.append(right_text)
+
+    if len(left_lines) < 2 or len(right_lines) < 2:
+        return None
+
+    return "\n\n".join(
+        block for block in ["\n".join(left_lines), "\n".join(right_lines)] if block
+    )
+
+
 def _extract_form_content_from_words(page: Any) -> str | None:
     """
     Extract form-style content from a PDF page by analyzing word positions.
@@ -956,6 +1070,7 @@ class PdfConverter(DocumentConverter):
             markdown_chunks: list[str] = []
             image_chunks: list[str] = []
             form_page_count = 0
+            multi_column_page_count = 0
             plain_page_indices: list[int] = []
 
             with pdfplumber.open(pdf_bytes) as pdf:
@@ -968,8 +1083,12 @@ class PdfConverter(DocumentConverter):
                         if page_content.strip():
                             markdown_chunks.append(page_content)
                     else:
-                        plain_page_indices.append(page_idx)
-                        text = page.extract_text()
+                        text = _extract_multi_column_text_from_words(page)
+                        if text is not None:
+                            multi_column_page_count += 1
+                        else:
+                            plain_page_indices.append(page_idx)
+                            text = page.extract_text()
                         page_has_text_layer = bool((text or "").strip())
                         if text and text.strip():
                             markdown_chunks.append(text.strip())
@@ -990,7 +1109,7 @@ class PdfConverter(DocumentConverter):
 
             # If no pages had form-style content, use pdfminer for
             # the whole document (better text spacing for prose).
-            if form_page_count == 0:
+            if form_page_count == 0 and multi_column_page_count == 0:
                 pdf_bytes.seek(0)
                 markdown = pdfminer.high_level.extract_text(pdf_bytes)
                 if image_chunks:
