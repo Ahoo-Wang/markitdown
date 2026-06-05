@@ -4,10 +4,10 @@ from typing import Optional
 from openai import OpenAI
 
 from markitdown import MarkItDown
+from markitdown_api._env import env_bool
 from markitdown_api.api_types import LlmOptions, ConvertRequest
 
 HTTP_VERIFY_SSL_ENV = "MARKITDOWN_API_HTTP_VERIFY_SSL"
-FALSE_VALUES = {"0", "false", "no", "off"}
 
 
 def is_blank(s: str) -> bool:
@@ -21,10 +21,7 @@ def blank_then_none(s: str) -> str | None:
 
 
 def should_verify_http_ssl() -> bool:
-    value = os.environ.get(HTTP_VERIFY_SSL_ENV)
-    if value is None:
-        return True
-    return value.strip().lower() not in FALSE_VALUES
+    return env_bool(HTTP_VERIFY_SSL_ENV, True)
 
 
 def _build_markitdown(llm_options: Optional[LlmOptions] = None) -> MarkItDown:

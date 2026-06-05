@@ -5,6 +5,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 
 from markitdown import StreamInfo, DocumentConverterResult
 from markitdown_api._utils import _parse_mime_type_from_content_type
+from markitdown_api._env import default_keep_data_uris
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import (
     LlmOptions,
@@ -52,6 +53,10 @@ def _parse_rag_heading_keywords(value: str) -> list[str]:
     return [keyword.strip() for keyword in normalized.split(",") if keyword.strip()]
 
 
+def _resolve_keep_data_uris(value: bool | None) -> bool:
+    return default_keep_data_uris() if value is None else value
+
+
 @router.post(path="", response_model=ConvertResponse)
 async def convert_file(
     file: Annotated[UploadFile, File()],
@@ -59,14 +64,14 @@ async def convert_file(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = False,
+    keep_data_uris: Annotated[bool | None, Form()] = None,
     rag_clean: Annotated[bool, Form()] = True,
     rag_heading_keywords: Annotated[str, Form()] = "",
 ):
     return FileApiConverter(
         ConvertFileRequest(
             file=file,
-            keep_data_uris=keep_data_uris,
+            keep_data_uris=_resolve_keep_data_uris(keep_data_uris),
             rag=RagOptions(
                 enabled=rag_clean,
                 heading_keywords=_parse_rag_heading_keywords(rag_heading_keywords),
@@ -88,7 +93,7 @@ async def convert_file_markdown(
     openai_api_key: Annotated[str, Form()] = "",
     llm_model: Annotated[str, Form()] = "",
     llm_prompt: Annotated[str, Form()] = "",
-    keep_data_uris: Annotated[bool, Form()] = False,
+    keep_data_uris: Annotated[bool | None, Form()] = None,
     rag_clean: Annotated[bool, Form()] = True,
     rag_heading_keywords: Annotated[str, Form()] = "",
 ):
@@ -96,7 +101,7 @@ async def convert_file_markdown(
         FileApiConverter(
             ConvertFileRequest(
                 file=file,
-                keep_data_uris=keep_data_uris,
+                keep_data_uris=_resolve_keep_data_uris(keep_data_uris),
                 rag=RagOptions(
                     enabled=rag_clean,
                     heading_keywords=_parse_rag_heading_keywords(rag_heading_keywords),
