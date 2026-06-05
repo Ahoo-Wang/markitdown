@@ -75,6 +75,104 @@ def _make_plain_page():
     return page
 
 
+def _make_two_column_page():
+    """Create a mock plain-text page with two prose columns."""
+    page = MagicMock()
+    page.width = 612
+    page.height = 792
+    page.close = MagicMock()
+    page.extract_words.return_value = [
+        {
+            "text": "Document overview title",
+            "x0": 60,
+            "x1": 260,
+            "top": 50,
+            "bottom": 62,
+        },
+        {"text": "Left heading", "x0": 60, "x1": 245, "top": 80, "bottom": 92},
+        {"text": "Right heading", "x0": 340, "x1": 430, "top": 80, "bottom": 92},
+        {
+            "text": "Left body line one has enough prose content",
+            "x0": 60,
+            "x1": 245,
+            "top": 110,
+            "bottom": 122,
+        },
+        {
+            "text": "Right body line one has enough prose content",
+            "x0": 340,
+            "x1": 535,
+            "top": 110,
+            "bottom": 122,
+        },
+        {
+            "text": "Left body line two keeps the left narrative together",
+            "x0": 60,
+            "x1": 270,
+            "top": 130,
+            "bottom": 142,
+        },
+        {
+            "text": "Right body line two keeps the right narrative together",
+            "x0": 340,
+            "x1": 550,
+            "top": 130,
+            "bottom": 142,
+        },
+        {
+            "text": "Left body line three continues below the matching row",
+            "x0": 60,
+            "x1": 275,
+            "top": 150,
+            "bottom": 162,
+        },
+        {
+            "text": "Right body line three continues below the matching row",
+            "x0": 340,
+            "x1": 555,
+            "top": 150,
+            "bottom": 162,
+        },
+        {
+            "text": "Document footer text",
+            "x0": 60,
+            "x1": 190,
+            "top": 740,
+            "bottom": 752,
+        },
+    ]
+    page.extract_text.return_value = (
+        "Document overview title\n"
+        "Left heading Right heading\n"
+        "Left body line one has enough prose content "
+        "Right body line one has enough prose content\n"
+        "Left body line two keeps the left narrative together "
+        "Right body line two keeps the right narrative together\n"
+        "Left body line three continues below the matching row "
+        "Right body line three continues below the matching row\n"
+        "Document footer text"
+    )
+    return page
+
+
+def _make_two_column_table_page():
+    """Create a mock page with a two-column key/value table."""
+    page = MagicMock()
+    page.width = 612
+    page.height = 792
+    page.close = MagicMock()
+    page.extract_words.return_value = [
+        {"text": "Name", "x0": 60, "x1": 100, "top": 80, "bottom": 92},
+        {"text": "Alice", "x0": 340, "x1": 390, "top": 80, "bottom": 92},
+        {"text": "Date", "x0": 60, "x1": 95, "top": 110, "bottom": 122},
+        {"text": "2026", "x0": 340, "x1": 385, "top": 110, "bottom": 122},
+        {"text": "Owner", "x0": 60, "x1": 112, "top": 130, "bottom": 142},
+        {"text": "Bob", "x0": 340, "x1": 370, "top": 130, "bottom": 142},
+    ]
+    page.extract_text.return_value = "Name Alice\nDate 2026\nOwner Bob"
+    return page
+
+
 class _FakePdfImageStream:
     def __init__(self, data: bytes, pdf_filter: str, **attrs):
         self.attrs = {"Filter": pdf_filter, **attrs}
@@ -207,6 +305,121 @@ class TestPdfMemoryOptimization:
             "plain-text PDFs should fall back to pdfminer"
         )
         assert result.text_content is not None
+
+    def test_two_column_plain_text_pdf_preserves_column_reading_order(self):
+        """Two-column prose should not be interleaved row by row."""
+        page = _make_two_column_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = page.extract_text()
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+            )
+
+        assert result.text_content is not None
+        assert "Document overview title" in result.text_content
+        assert (
+            "Left heading\n"
+            "Left body line one has enough prose content\n"
+            "Left body line two keeps the left narrative together\n"
+            "Left body line three continues below the matching row"
+        ) in result.text_content
+        assert (
+            "Right heading\n"
+            "Right body line one has enough prose content\n"
+            "Right body line two keeps the right narrative together\n"
+            "Right body line three continues below the matching row"
+        ) in result.text_content
+        assert (
+            "Left body line one has enough prose content "
+            "Right body line one has enough prose content"
+        ) not in result.text_content
+        assert result.text_content.rfind(
+            "Document footer text"
+        ) > result.text_content.rfind(
+            "Right body line three continues below the matching row"
+        )
+
+    def test_two_column_key_value_pdf_falls_back_to_pdfminer(self):
+        """Two-column key/value rows should preserve row associations."""
+        page = _make_two_column_table_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = (
+                "Name Alice\nDate 2026\nOwner Bob"
+            )
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+            )
+
+        assert result.text_content is not None
+        assert mock_pdfminer.high_level.extract_text.called
+        assert "Name Alice\nDate 2026\nOwner Bob" in result.text_content
+        assert "Name\nDate\nOwner\n\nAlice" not in result.text_content
+
+    def test_plain_pages_use_pdfminer_when_document_has_multicolumn_page(self):
+        """Only detected multi-column pages should replace pdfminer output."""
+        plain_before = _make_plain_page()
+        plain_before.extract_text.return_value = "page extract text before"
+        plain_after = _make_plain_page()
+        plain_after.extract_text.return_value = "page extract text after"
+        multi_column = _make_two_column_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open(
+                [plain_before, multi_column, plain_after]
+            )
+            mock_pdfminer.high_level.extract_text.return_value = (
+                "pdfminer text before\f"
+                "interleaved multi-column fallback\f"
+                "pdfminer text after\f"
+            )
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+            )
+
+        assert result.text_content is not None
+        assert "pdfminer text before" in result.text_content
+        assert "pdfminer text after" in result.text_content
+        assert "page extract text before" not in result.text_content
+        assert "page extract text after" not in result.text_content
+        assert "interleaved multi-column fallback" not in result.text_content
+        assert (
+            "Left heading\nLeft body line one has enough prose content"
+            in result.text_content
+        )
 
     def test_plain_text_pdf_still_closes_all_pages(self):
         """Even for plain-text PDFs, page.close() must be called on every page."""

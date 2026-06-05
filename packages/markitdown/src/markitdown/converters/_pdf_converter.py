@@ -523,6 +523,244 @@ def _to_markdown_table(table: list[list[str]], include_separator: bool = True) -
     return "\n".join(md)
 
 
+def _group_words_by_y(
+    words: list[dict[str, Any]], y_tolerance: int = 5
+) -> list[list[dict[str, Any]]]:
+    rows_by_y: dict[float, list[dict[str, Any]]] = {}
+    for word in words:
+        top = _float_or_none(word.get("top"))
+        if top is None:
+            continue
+
+        y_key = round(top / y_tolerance) * y_tolerance
+        if y_key not in rows_by_y:
+            rows_by_y[y_key] = []
+        rows_by_y[y_key].append(word)
+
+    return [
+        sorted(row_words, key=lambda word: _float_or_none(word.get("x0")) or 0)
+        for _, row_words in sorted(rows_by_y.items())
+        if row_words
+    ]
+
+
+def _word_text(word: dict[str, Any]) -> str:
+    return str(word.get("text") or "").strip()
+
+
+def _join_word_text(words: list[dict[str, Any]]) -> str:
+    return " ".join(text for word in words if (text := _word_text(word))).strip()
+
+
+def _split_pdfminer_pages(text: str) -> list[str]:
+    pages = text.split("\f")
+    if pages and not pages[-1].strip():
+        pages = pages[:-1]
+    return pages
+
+
+def _row_text_sides(row_words: list[dict[str, Any]], split_x: float) -> tuple[str, str]:
+    left_words = [
+        word for word in row_words if (_float_or_none(word.get("x0")) or 0.0) < split_x
+    ]
+    right_words = [
+        word for word in row_words if (_float_or_none(word.get("x0")) or 0.0) >= split_x
+    ]
+    return _join_word_text(left_words), _join_word_text(right_words)
+
+
+def _row_largest_gap(row_words: list[dict[str, Any]]) -> tuple[float, float | None]:
+    largest_gap = 0.0
+    largest_gap_midpoint: float | None = None
+
+    for previous_word, next_word in zip(row_words, row_words[1:]):
+        previous_x1 = _float_or_none(previous_word.get("x1"))
+        next_x0 = _float_or_none(next_word.get("x0"))
+        if previous_x1 is None or next_x0 is None:
+            continue
+
+        gap = next_x0 - previous_x1
+        if gap > largest_gap:
+            largest_gap = gap
+            largest_gap_midpoint = previous_x1 + (gap / 2)
+
+    return largest_gap, largest_gap_midpoint
+
+
+def _is_multi_column_prose_pair(left_text: str, right_text: str) -> bool:
+    if not left_text or not right_text:
+        return False
+
+    combined_length = len(left_text) + len(right_text)
+    return combined_length >= 50 and max(len(left_text), len(right_text)) >= 20
+
+
+def _row_is_footer_like(
+    row_words: list[dict[str, Any]], page_height: float, text: str
+) -> bool:
+    top_values = [
+        top
+        for word in row_words
+        if (top := _float_or_none(word.get("top"))) is not None
+    ]
+    return (
+        bool(top_values) and min(top_values) >= page_height * 0.90 and len(text) <= 40
+    )
+
+
+def _row_single_column_side(
+    row_words: list[dict[str, Any]], split_x: float, text: str, page_height: float
+) -> str | None:
+    if not text or _row_is_footer_like(row_words, page_height, text):
+        return None
+
+    x0_values = [
+        x0 for word in row_words if (x0 := _float_or_none(word.get("x0"))) is not None
+    ]
+    x1_values = [
+        x1 for word in row_words if (x1 := _float_or_none(word.get("x1"))) is not None
+    ]
+    if not x0_values or not x1_values:
+        return None
+
+    if max(x1_values) < split_x:
+        return "left"
+    if min(x0_values) >= split_x:
+        return "right"
+    return None
+
+
+def _extract_multi_column_text_from_words(page: Any) -> str | None:
+    """
+    Extract prose from simple multi-column pages in column reading order.
+
+    pdfminer and pdfplumber's default extract_text() are usually better for
+    plain prose, but they can interleave independent columns that share similar
+    Y positions. This path is intentionally conservative: it only activates
+    when several rows show a consistent wide gutter between two text regions.
+    """
+    words = page.extract_words(keep_blank_chars=True, x_tolerance=3, y_tolerance=3)
+    if not words:
+        return None
+
+    rows = _group_words_by_y(words)
+    if len(rows) < 3:
+        return None
+
+    page_width = _float_or_none(getattr(page, "width", None)) or 612.0
+    page_height = _float_or_none(getattr(page, "height", None)) or 792.0
+    min_gutter = max(64.0, page_width * 0.10)
+    split_candidates: list[float] = []
+    row_info: list[dict[str, Any]] = []
+
+    for row_words in rows:
+        largest_gap, largest_gap_midpoint = _row_largest_gap(row_words)
+        text = _join_word_text(row_words)
+        row_info.append(
+            {
+                "words": row_words,
+                "text": text,
+                "largest_gap": largest_gap,
+                "largest_gap_midpoint": largest_gap_midpoint,
+            }
+        )
+
+        if largest_gap >= min_gutter and largest_gap_midpoint is not None:
+            split_candidates.append(largest_gap_midpoint)
+
+    if len(split_candidates) < 3:
+        return None
+
+    split_candidates.sort()
+    split_x = split_candidates[len(split_candidates) // 2]
+
+    consistent_candidates = [
+        candidate
+        for candidate in split_candidates
+        if abs(candidate - split_x) <= max(36.0, page_width * 0.06)
+    ]
+    if len(consistent_candidates) < 3:
+        return None
+
+    prose_candidate_count = 0
+    for info in row_info:
+        midpoint = info["largest_gap_midpoint"]
+        is_consistent_split = (
+            info["largest_gap"] >= min_gutter
+            and midpoint is not None
+            and abs(midpoint - split_x) <= max(36.0, page_width * 0.06)
+        )
+        left_text, right_text = _row_text_sides(info["words"], split_x)
+        is_prose_pair = is_consistent_split and _is_multi_column_prose_pair(
+            left_text, right_text
+        )
+
+        info["is_consistent_split"] = is_consistent_split
+        info["left_text"] = left_text
+        info["right_text"] = right_text
+        info["is_prose_pair"] = is_prose_pair
+        info["single_column_side"] = _row_single_column_side(
+            info["words"], split_x, info["text"], page_height
+        )
+
+        if is_prose_pair:
+            prose_candidate_count += 1
+
+    if prose_candidate_count < 3:
+        return None
+
+    result_blocks: list[str] = []
+    idx = 0
+    while idx < len(row_info):
+        info = row_info[idx]
+        if not info["is_consistent_split"]:
+            if info["text"]:
+                result_blocks.append(info["text"])
+            idx += 1
+            continue
+
+        region: list[dict[str, Any]] = []
+        region_has_prose = False
+        while idx < len(row_info):
+            info = row_info[idx]
+            if info["is_consistent_split"]:
+                region.append(info)
+                region_has_prose = region_has_prose or info["is_prose_pair"]
+                idx += 1
+                continue
+
+            single_side = info["single_column_side"]
+            if region_has_prose and single_side is not None:
+                region.append(info)
+                idx += 1
+                continue
+
+            break
+
+        if not region_has_prose:
+            result_blocks.extend(info["text"] for info in region if info["text"])
+            continue
+
+        left_lines: list[str] = []
+        right_lines: list[str] = []
+        for region_info in region:
+            if region_info["is_consistent_split"]:
+                if region_info["left_text"]:
+                    left_lines.append(region_info["left_text"])
+                if region_info["right_text"]:
+                    right_lines.append(region_info["right_text"])
+            elif region_info["single_column_side"] == "left":
+                left_lines.append(region_info["text"])
+            elif region_info["single_column_side"] == "right":
+                right_lines.append(region_info["text"])
+
+        result_blocks.extend(
+            block for block in ["\n".join(left_lines), "\n".join(right_lines)] if block
+        )
+
+    return "\n\n".join(result_blocks)
+
+
 def _extract_form_content_from_words(page: Any) -> str | None:
     """
     Extract form-style content from a PDF page by analyzing word positions.
@@ -898,6 +1136,26 @@ def _extract_tables_from_words(page: Any) -> list[list[list[str]]]:
     return [table_rows]
 
 
+def _join_pdf_page_chunks(
+    page_chunks: list[dict[str, Any]], pdfminer_pages: list[str] | None = None
+) -> str:
+    pdfminer_pages = pdfminer_pages or []
+    markdown_chunks: list[str] = []
+
+    for page_idx, page_chunk in enumerate(page_chunks):
+        text = page_chunk["text"]
+        if page_chunk["kind"] == "plain" and page_idx < len(pdfminer_pages):
+            pdfminer_text = pdfminer_pages[page_idx].strip()
+            if pdfminer_text:
+                text = pdfminer_text
+
+        if text:
+            markdown_chunks.append(text)
+        markdown_chunks.extend(page_chunk["images"])
+
+    return "\n\n".join(markdown_chunks).strip()
+
+
 class PdfConverter(DocumentConverter):
     """
     Converts PDFs to Markdown.
@@ -953,26 +1211,29 @@ class PdfConverter(DocumentConverter):
             # pages are collected separately. page.close() is called
             # after each page to free pdfplumber's cached objects and
             # keep memory usage constant regardless of page count.
-            markdown_chunks: list[str] = []
             image_chunks: list[str] = []
+            page_chunks: list[dict[str, Any]] = []
             form_page_count = 0
-            plain_page_indices: list[int] = []
+            multi_column_page_count = 0
 
             with pdfplumber.open(pdf_bytes) as pdf:
                 for page_idx, page in enumerate(pdf.pages):
                     page_content = _extract_form_content_from_words(page)
 
                     if page_content is not None:
+                        chunk_kind = "form"
+                        text = page_content
                         form_page_count += 1
                         page_has_text_layer = bool(page_content.strip())
-                        if page_content.strip():
-                            markdown_chunks.append(page_content)
                     else:
-                        plain_page_indices.append(page_idx)
-                        text = page.extract_text()
+                        chunk_kind = "multi_column"
+                        text = _extract_multi_column_text_from_words(page)
+                        if text is not None:
+                            multi_column_page_count += 1
+                        else:
+                            chunk_kind = "plain"
+                            text = page.extract_text()
                         page_has_text_layer = bool((text or "").strip())
-                        if text and text.strip():
-                            markdown_chunks.append(text.strip())
 
                     page_image_chunks = (
                         _extract_pdf_image_markdown(
@@ -983,23 +1244,39 @@ class PdfConverter(DocumentConverter):
                     )
 
                     if page_image_chunks:
-                        markdown_chunks.extend(page_image_chunks)
                         image_chunks.extend(page_image_chunks)
+
+                    page_chunks.append(
+                        {
+                            "kind": chunk_kind,
+                            "text": (text or "").strip(),
+                            "images": page_image_chunks,
+                        }
+                    )
 
                     page.close()  # Free cached page data immediately
 
-            # If no pages had form-style content, use pdfminer for
-            # the whole document (better text spacing for prose).
             if form_page_count == 0:
                 pdf_bytes.seek(0)
-                markdown = pdfminer.high_level.extract_text(pdf_bytes)
-                if image_chunks:
-                    image_markdown = "\n\n".join(image_chunks)
-                    markdown = "\n\n".join(
-                        chunk for chunk in [markdown.strip(), image_markdown] if chunk
+                pdfminer_markdown = pdfminer.high_level.extract_text(pdf_bytes)
+
+                # With no layout-sensitive pages, keep the original whole-document
+                # pdfminer output because it generally spaces normal prose best.
+                if multi_column_page_count == 0:
+                    markdown = pdfminer_markdown
+                    if image_chunks:
+                        image_markdown = "\n\n".join(image_chunks)
+                        markdown = "\n\n".join(
+                            chunk
+                            for chunk in [markdown.strip(), image_markdown]
+                            if chunk
+                        )
+                else:
+                    markdown = _join_pdf_page_chunks(
+                        page_chunks, _split_pdfminer_pages(pdfminer_markdown)
                     )
             else:
-                markdown = "\n\n".join(markdown_chunks).strip()
+                markdown = _join_pdf_page_chunks(page_chunks)
 
         except Exception:
             # Fallback if pdfplumber fails
