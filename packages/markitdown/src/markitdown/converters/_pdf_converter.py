@@ -11,6 +11,8 @@ from .._exceptions import MissingDependencyException, MISSING_DEPENDENCY_MESSAGE
 
 # Pattern for MasterFormat-style partial numbering (e.g., ".1", ".2", ".10")
 PARTIAL_NUMBERING_PATTERN = re.compile(r"^\.\d+$")
+COMPACT_TABLE_CELL_LENGTH = 120
+MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(")
 
 
 def _merge_partial_numbering_lines(text: str) -> str:
@@ -459,10 +461,10 @@ def _pdf_image_to_data_uri(image: Any) -> str | None:
     return f"data:{mimetype};base64,{payload}"
 
 
-def _extract_pdf_image_markdown(
+def _extract_pdf_image_entries(
     page: Any, page_number: int, page_has_text_layer: bool | None = None
-) -> list[str]:
-    markdown_images: list[str] = []
+) -> list[dict[str, Any]]:
+    image_entries: list[dict[str, Any]] = []
     if page_has_text_layer is None:
         try:
             page_has_text_layer = bool((page.extract_text() or "").strip())
@@ -477,17 +479,64 @@ def _extract_pdf_image_markdown(
         if data_uri is None:
             continue
         alt_text = f"PDF page {page_number} image {image_number}"
-        markdown_images.append(f"![{alt_text}]({data_uri})")
-    return markdown_images
+        image_entries.append(
+            {
+                "markdown": f"![{alt_text}]({data_uri})",
+                "x0": _float_or_none(image.get("x0")),
+                "x1": _float_or_none(image.get("x1")),
+                "top": _float_or_none(image.get("top")),
+                "bottom": _float_or_none(image.get("bottom")),
+                "used": False,
+            }
+        )
+    return image_entries
 
 
-def _to_markdown_table(table: list[list[str]], include_separator: bool = True) -> str:
+def _extract_pdf_image_markdown(
+    page: Any, page_number: int, page_has_text_layer: bool | None = None
+) -> list[str]:
+    return [
+        image_entry["markdown"]
+        for image_entry in _extract_pdf_image_entries(
+            page, page_number, page_has_text_layer
+        )
+    ]
+
+
+def _table_needs_compact_format(table: list[list[str]]) -> bool:
+    for row in table:
+        for cell in row:
+            cell_text = str(cell or "")
+            if len(cell_text) > COMPACT_TABLE_CELL_LENGTH:
+                return True
+            if "data:image/" in cell_text or MARKDOWN_IMAGE_PATTERN.search(cell_text):
+                return True
+    return False
+
+
+def _trim_empty_trailing_columns(table: list[list[str]]) -> list[list[str]]:
+    if not table:
+        return table
+
+    num_cols = max(len(row) for row in table)
+    normalized = [row + [""] * (num_cols - len(row)) for row in table]
+
+    while num_cols > 1 and all(not row[num_cols - 1].strip() for row in normalized):
+        num_cols -= 1
+
+    return [row[:num_cols] for row in normalized]
+
+
+def _to_markdown_table(
+    table: list[list[str]], include_separator: bool = True, *, pad_cells: bool = False
+) -> str:
     """Convert a 2D list (rows/columns) into a nicely aligned Markdown table.
 
     Args:
         table: 2D list of cell values
         include_separator: If True, include header separator row (standard markdown).
                           If False, output simple pipe-separated rows.
+        pad_cells: If True, include spaces around pipe separators.
     """
     if not table:
         return ""
@@ -501,20 +550,59 @@ def _to_markdown_table(table: list[list[str]], include_separator: bool = True) -
     if not table:
         return ""
 
+    table = _trim_empty_trailing_columns(table)
+    num_cols = max(len(row) for row in table)
+    compact_format = _table_needs_compact_format(table)
+
+    def fmt_compact_row(row: list[str]) -> str:
+        if pad_cells:
+            return "| " + " | ".join(str(cell) for cell in row) + " |"
+        return "|" + "|".join(str(cell) for cell in row) + "|"
+
+    def fmt_compact_separator() -> str:
+        if pad_cells:
+            return "| " + " | ".join("---" for _ in range(num_cols)) + " |"
+        return "|" + "|".join("---" for _ in range(num_cols)) + "|"
+
+    if compact_format:
+        if include_separator:
+            header, *rows = table
+            md = [fmt_compact_row(header), fmt_compact_separator()]
+            md.extend(fmt_compact_row(row) for row in rows)
+        else:
+            md = [fmt_compact_row(row) for row in table]
+        return "\n".join(md)
+
     # Column widths
-    col_widths = [max(len(str(cell)) for cell in col) for col in zip(*table)]
+    col_widths = [
+        max(3, max(len(str(row[col_idx])) for row in table))
+        for col_idx in range(num_cols)
+    ]
 
     def fmt_row(row: list[str]) -> str:
+        if pad_cells:
+            return (
+                "| "
+                + " | ".join(
+                    str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)
+                )
+                + " |"
+            )
         return (
             "|"
             + "|".join(str(cell).ljust(width) for cell, width in zip(row, col_widths))
             + "|"
         )
 
+    def fmt_separator() -> str:
+        if pad_cells:
+            return "| " + " | ".join("-" * w for w in col_widths) + " |"
+        return "|" + "|".join("-" * w for w in col_widths) + "|"
+
     if include_separator:
         header, *rows = table
         md = [fmt_row(header)]
-        md.append("|" + "|".join("-" * w for w in col_widths) + "|")
+        md.append(fmt_separator())
         for row in rows:
             md.append(fmt_row(row))
     else:
@@ -541,6 +629,63 @@ def _group_words_by_y(
         sorted(row_words, key=lambda word: _float_or_none(word.get("x0")) or 0)
         for _, row_words in sorted(rows_by_y.items())
         if row_words
+    ]
+
+
+def _group_words_by_visual_row(
+    words: list[dict[str, Any]], y_tolerance: int = 5
+) -> list[list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    sorted_words = sorted(
+        words,
+        key=lambda word: (
+            _float_or_none(word.get("top")) or 0,
+            _float_or_none(word.get("x0")) or 0,
+        ),
+    )
+
+    for word in sorted_words:
+        top = _float_or_none(word.get("top"))
+        bottom = _float_or_none(word.get("bottom"))
+        if top is None or bottom is None:
+            continue
+
+        center = (top + bottom) / 2
+        best_row = None
+        best_score = float("-inf")
+
+        for row in reversed(rows):
+            if top - row["bottom"] > y_tolerance and center > row["center"]:
+                break
+
+            center_delta = abs(center - row["center"])
+
+            if center_delta <= y_tolerance:
+                score = -center_delta
+                if score > best_score:
+                    best_score = score
+                    best_row = row
+
+        if best_row is None:
+            rows.append(
+                {
+                    "top": top,
+                    "bottom": bottom,
+                    "center": center,
+                    "words": [word],
+                }
+            )
+            continue
+
+        best_row["words"].append(word)
+        best_row["top"] = min(best_row["top"], top)
+        best_row["bottom"] = max(best_row["bottom"], bottom)
+        best_row["center"] = (best_row["top"] + best_row["bottom"]) / 2
+
+    return [
+        sorted(row["words"], key=lambda word: _float_or_none(word.get("x0")) or 0)
+        for row in sorted(rows, key=lambda row: row["top"])
+        if row["words"]
     ]
 
 
@@ -761,7 +906,9 @@ def _extract_multi_column_text_from_words(page: Any) -> str | None:
     return "\n\n".join(result_blocks)
 
 
-def _extract_form_content_from_words(page: Any) -> str | None:
+def _extract_form_content_from_words(
+    page: Any, image_entries: list[dict[str, Any]] | None = None
+) -> str | None:
     """
     Extract form-style content from a PDF page by analyzing word positions.
     This handles borderless forms/tables where words are aligned in columns.
@@ -777,26 +924,15 @@ def _extract_form_content_from_words(page: Any) -> str | None:
     if not words:
         return None
 
-    # Group words by their Y position (rows)
-    y_tolerance = 5
-    rows_by_y: dict[float, list[dict]] = {}
-    for word in words:
-        y_key = round(word["top"] / y_tolerance) * y_tolerance
-        if y_key not in rows_by_y:
-            rows_by_y[y_key] = []
-        rows_by_y[y_key].append(word)
-
-    # Sort rows by Y position
-    sorted_y_keys = sorted(rows_by_y.keys())
     page_width = page.width if hasattr(page, "width") else 612
 
     # First pass: analyze each row
     row_info: list[dict] = []
-    for y_key in sorted_y_keys:
-        row_words = sorted(rows_by_y[y_key], key=lambda w: w["x0"])
+    for row_words in _group_words_by_visual_row(words):
         if not row_words:
             continue
 
+        y_key = min(word["top"] for word in row_words)
         first_x0 = row_words[0]["x0"]
         last_x1 = row_words[-1]["x1"]
         line_width = last_x1 - first_x0
@@ -945,23 +1081,137 @@ def _extract_form_content_from_words(page: Any) -> str | None:
     # Build output - collect table data first, then format with proper column widths
     result_lines: list[str] = []
     num_cols = len(global_columns)
+    page_height = page.height if hasattr(page, "height") else 792
+
+    def assign_col(x0: float) -> int:
+        assigned_col = num_cols - 1
+        for col_idx in range(num_cols - 1):
+            col_end = global_columns[col_idx + 1]
+            if x0 < col_end - 20:
+                assigned_col = col_idx
+                break
+        return assigned_col
+
+    def append_cell_content(
+        cells: list[str], col_idx: int, content: str, separator: str = " "
+    ) -> None:
+        if cells[col_idx]:
+            if cells[col_idx].startswith("![") and separator == " ":
+                separator = "<br>"
+            cells[col_idx] += f"{separator}{content}"
+        else:
+            cells[col_idx] = content
+
+    def prepend_cell_content(
+        cells: list[str], col_idx: int, content: str, separator: str = "<br>"
+    ) -> None:
+        if cells[col_idx]:
+            cells[col_idx] = f"{content}{separator}{cells[col_idx]}"
+        else:
+            cells[col_idx] = content
+
+    def image_overlaps_row(image_entry: dict[str, Any], info: dict) -> bool:
+        image_top = image_entry.get("top")
+        image_bottom = image_entry.get("bottom")
+        if image_top is None or image_bottom is None:
+            return False
+
+        row_words = info["words"]
+        image_x0 = image_entry.get("x0")
+        image_x1 = image_entry.get("x1")
+        if image_x0 is not None and image_x1 is not None:
+            max_horizontal_gap = max(80, min(160, page_width * 0.25))
+            nearby_words = [
+                word
+                for word in row_words
+                if word["x1"] >= image_x0 - 20
+                and word["x0"] <= image_x1 + max_horizontal_gap
+            ]
+            if not nearby_words:
+                return False
+            row_words = nearby_words
+
+        row_top = min(word["top"] for word in row_words)
+        row_bottom = max(word["bottom"] for word in row_words)
+        return min(image_bottom, row_bottom) > max(image_top, row_top)
+
+    def consume_images_for_row(info: dict) -> list[dict[str, Any]]:
+        if not image_entries:
+            return []
+
+        row_images: list[dict[str, Any]] = []
+        for image_entry in image_entries:
+            if image_entry.get("used") or image_entry.get("x0") is None:
+                continue
+            if not image_overlaps_row(image_entry, info):
+                continue
+
+            image_entry["used"] = True
+            row_images.append(image_entry)
+
+        return sorted(row_images, key=lambda image_entry: image_entry["x0"])
+
+    def consume_images_above_table_header(info: dict) -> list[dict[str, Any]]:
+        if not image_entries:
+            return []
+
+        row_top = min(word["top"] for word in info["words"])
+        max_vertical_gap = max(24, min(48, page_height * 0.04))
+        candidates_by_col: dict[int, list[dict[str, Any]]] = {}
+
+        for image_entry in image_entries:
+            image_x0 = image_entry.get("x0")
+            image_top = image_entry.get("top")
+            image_bottom = image_entry.get("bottom")
+            if (
+                image_entry.get("used")
+                or image_x0 is None
+                or image_top is None
+                or image_bottom is None
+            ):
+                continue
+
+            vertical_gap = row_top - image_bottom
+            if vertical_gap < -3 or vertical_gap > max_vertical_gap:
+                continue
+
+            col_idx = assign_col(image_x0)
+            candidates_by_col.setdefault(col_idx, []).append(image_entry)
+
+        header_images: list[dict[str, Any]] = []
+        for col_idx, candidates in candidates_by_col.items():
+            for image_entry in candidates:
+                image_entry["used"] = True
+
+            chosen = max(
+                candidates,
+                key=lambda image_entry: (
+                    (image_entry.get("x1") or image_entry.get("x0") or 0)
+                    - (image_entry.get("x0") or 0)
+                )
+                * (
+                    (image_entry.get("bottom") or image_entry.get("top") or 0)
+                    - (image_entry.get("top") or 0)
+                ),
+            )
+            header_images.append(chosen)
+
+        return sorted(header_images, key=lambda image_entry: image_entry["x0"])
 
     # Helper function to extract cells from a row
     def extract_cells(info: dict) -> list[str]:
         cells: list[str] = ["" for _ in range(num_cols)]
+        for image_entry in consume_images_for_row(info):
+            append_cell_content(
+                cells,
+                assign_col(image_entry["x0"]),
+                image_entry["markdown"],
+                "<br>",
+            )
+
         for word in info["words"]:
             word_x = word["x0"]
-            # Find the correct column using boundary ranges
-            assigned_col = num_cols - 1  # Default to last column
-            for col_idx in range(num_cols - 1):
-                col_end = global_columns[col_idx + 1]
-                if word_x < col_end - 20:
-                    assigned_col = col_idx
-                    break
-            if cells[assigned_col]:
-                cells[assigned_col] += " " + word["text"]
-            else:
-                cells[assigned_col] = word["text"]
+            append_cell_content(cells, assign_col(word_x), word["text"])
         return cells
 
     # Process rows, collecting table data for proper formatting
@@ -984,43 +1234,16 @@ def _extract_form_content_from_words(page: Any) -> str | None:
                 cells = extract_cells(row_info[table_idx])
                 table_data.append(cells)
 
-            # Calculate column widths for this table
             if table_data:
-                col_widths = [
-                    max(len(row[col]) for row in table_data) for col in range(num_cols)
-                ]
-                # Ensure minimum width of 3 for separator dashes
-                col_widths = [max(w, 3) for w in col_widths]
-
-                # Format header row
-                header = table_data[0]
-                header_str = (
-                    "| "
-                    + " | ".join(
-                        cell.ljust(col_widths[i]) for i, cell in enumerate(header)
+                for image_entry in consume_images_above_table_header(row_info[start]):
+                    prepend_cell_content(
+                        table_data[0],
+                        assign_col(image_entry["x0"]),
+                        image_entry["markdown"],
                     )
-                    + " |"
+                result_lines.extend(
+                    _to_markdown_table(table_data, pad_cells=True).splitlines()
                 )
-                result_lines.append(header_str)
-
-                # Format separator row
-                separator = (
-                    "| "
-                    + " | ".join("-" * col_widths[i] for i in range(num_cols))
-                    + " |"
-                )
-                result_lines.append(separator)
-
-                # Format data rows
-                for row in table_data[1:]:
-                    row_str = (
-                        "| "
-                        + " | ".join(
-                            cell.ljust(col_widths[i]) for i, cell in enumerate(row)
-                        )
-                        + " |"
-                    )
-                    result_lines.append(row_str)
 
             idx = end  # Skip to end of table region
         else:
@@ -1033,7 +1256,11 @@ def _extract_form_content_from_words(page: Any) -> str | None:
 
             if not in_table:
                 # Non-table content
-                result_lines.append(info["text"])
+                row_images = [
+                    image_entry["markdown"]
+                    for image_entry in consume_images_for_row(info)
+                ]
+                result_lines.append(" ".join([*row_images, info["text"]]))
             idx += 1
 
     return "\n".join(result_lines)
@@ -1235,13 +1462,25 @@ class PdfConverter(DocumentConverter):
                             text = page.extract_text()
                         page_has_text_layer = bool((text or "").strip())
 
-                    page_image_chunks = (
-                        _extract_pdf_image_markdown(
+                    page_image_entries = (
+                        _extract_pdf_image_entries(
                             page, page_idx + 1, page_has_text_layer
                         )
                         if keep_data_uris
                         else []
                     )
+                    if chunk_kind == "form" and page_image_entries:
+                        text_with_images = _extract_form_content_from_words(
+                            page, page_image_entries
+                        )
+                        if text_with_images is not None:
+                            text = text_with_images
+
+                    page_image_chunks = [
+                        image_entry["markdown"]
+                        for image_entry in page_image_entries
+                        if not image_entry.get("used")
+                    ]
 
                     if page_image_chunks:
                         image_chunks.extend(page_image_chunks)

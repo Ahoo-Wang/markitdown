@@ -19,6 +19,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from markitdown import MarkItDown
+from markitdown.converters._pdf_converter import _to_markdown_table
 
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_files")
 
@@ -170,6 +171,37 @@ def _make_two_column_table_page():
         {"text": "Bob", "x0": 340, "x1": 370, "top": 130, "bottom": 142},
     ]
     page.extract_text.return_value = "Name Alice\nDate 2026\nOwner Bob"
+    return page
+
+
+def _make_baseline_offset_table_page():
+    """Create a mock page where one visual table row has shifted baselines."""
+    page = MagicMock()
+    page.width = 840
+    page.height = 595
+    page.close = MagicMock()
+    page.extract_words.return_value = [
+        {"text": "Wide", "x0": 45, "x1": 70, "top": 100, "bottom": 108},
+        {"text": "A", "x0": 170, "x1": 180, "top": 100, "bottom": 108},
+        {"text": "B", "x0": 275, "x1": 285, "top": 100, "bottom": 108},
+        {"text": "C", "x0": 380, "x1": 390, "top": 100, "bottom": 108},
+        {"text": "D", "x0": 485, "x1": 495, "top": 100, "bottom": 108},
+        {"text": "E", "x0": 590, "x1": 600, "top": 100, "bottom": 108},
+        {"text": "F", "x0": 700, "x1": 710, "top": 100, "bottom": 108},
+        {"text": "Gateway modules", "x0": 45, "x1": 150, "top": 180, "bottom": 192},
+        {"text": "Feature", "x0": 45, "x1": 75, "top": 230, "bottom": 238},
+        {"text": "Protocol A", "x0": 170, "x1": 230, "top": 230, "bottom": 240},
+        {"text": "Protocol B", "x0": 275, "x1": 335, "top": 230, "bottom": 240},
+        {"text": "Protocol C", "x0": 380, "x1": 440, "top": 230, "bottom": 240},
+        {"text": "Order No.", "x0": 45, "x1": 90, "top": 246.1, "bottom": 254.1},
+        {"text": "R1.001", "x0": 170, "x1": 215, "top": 247.5, "bottom": 255.5},
+        {"text": "R1.002", "x0": 275, "x1": 320, "top": 247.5, "bottom": 255.5},
+        {"text": "R1.003", "x0": 380, "x1": 425, "top": 247.5, "bottom": 255.5},
+        {"text": "Approval", "x0": 45, "x1": 90, "top": 260, "bottom": 268},
+        {"text": "CE", "x0": 170, "x1": 185, "top": 261.5, "bottom": 269.5},
+        {"text": "UL", "x0": 275, "x1": 290, "top": 261.5, "bottom": 269.5},
+        {"text": "UKCA", "x0": 380, "x1": 410, "top": 261.5, "bottom": 269.5},
+    ]
     return page
 
 
@@ -543,6 +575,247 @@ class TestPdfMemoryOptimization:
 
         assert "Plain text content" in result.text_content
         assert "![PDF page 1 image 1](data:image/jpeg;base64," in result.text_content
+
+    def test_keep_data_uris_places_form_row_images_in_table_cells(self):
+        """Images positioned inside form rows should stay with those rows."""
+        page = _make_form_page()
+        page.images = [
+            _make_pdf_image(x0=50, top=24, width=36, height=26),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        image_prefix = "![PDF page 1 image 1](data:image/jpeg;base64,"
+        alpha_row = next(
+            line for line in result.text_content.splitlines() if "Alpha" in line
+        )
+
+        assert image_prefix in alpha_row
+        assert result.text_content.count(image_prefix) == 1
+
+    def test_keep_data_uris_form_table_images_do_not_expand_table_padding(self):
+        """Image data URIs should not leave huge padded table rows after rewrite."""
+        page = _make_form_page()
+        page.images = [
+            _make_pdf_image(x0=50, top=24, width=36, height=26),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        rewritten = re.sub(
+            r"data:image/[^)]+",
+            "https://example.invalid/image.jpg",
+            result.text_content,
+        )
+        lines = rewritten.splitlines()
+
+        assert max(len(line) for line in lines) < 160
+        assert all(
+            len(line) < 80 for line in lines if line.startswith("|") and "---" in line
+        )
+
+    def test_markdown_table_compacts_long_link_cells(self):
+        """Long links should not determine Markdown table padding widths."""
+        long_url = f"https://example.invalid/{'a' * 300}/asset.jpg"
+        markdown = _to_markdown_table(
+            [
+                ["Name", "Download"],
+                ["Alpha", f"[datasheet]({long_url})"],
+            ]
+        )
+        rewritten = markdown.replace(long_url, "https://example.invalid/asset.jpg")
+        lines = rewritten.splitlines()
+
+        assert max(len(line) for line in lines) < 120
+        assert all(
+            len(line) < 40 for line in lines if line.startswith("|") and "---" in line
+        )
+
+    def test_form_table_merges_overlapping_baselines_and_trims_empty_columns(self):
+        """Visual table rows should not split when cell baselines differ slightly."""
+        page = _make_baseline_offset_table_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+            )
+
+        def normalize_row(line: str) -> str:
+            return (
+                "| "
+                + " | ".join(cell.strip() for cell in line.strip("|").split("|"))
+                + " |"
+            )
+
+        table_rows = [
+            normalize_row(line)
+            for line in result.text_content.splitlines()
+            if line.startswith("|") and ("Protocol" in line or "Order No." in line)
+        ]
+        normalized_text = "\n".join(
+            normalize_row(line) if line.startswith("|") else line
+            for line in result.text_content.splitlines()
+        )
+
+        assert "| Order No. | R1.001 | R1.002 | R1.003 |" in normalized_text
+        assert "Order No.\n|" not in normalized_text
+        assert "| Feature | Protocol A | Protocol B | Protocol C |" in normalized_text
+        assert all(not row.endswith(" |  |  |  |") for row in table_rows)
+
+    def test_keep_data_uris_places_images_above_table_header_in_header_cells(self):
+        """Images just above a table header should stay in their matching columns."""
+        page = _make_baseline_offset_table_page()
+        page.images = [
+            _make_pdf_image(x0=170, top=205, width=36, height=22),
+            _make_pdf_image(x0=275, top=205, width=36, height=22),
+            _make_pdf_image(x0=380, top=205, width=36, height=22),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        header_row = next(
+            line for line in result.text_content.splitlines() if "Protocol A" in line
+        )
+
+        for image_number in [1, 2, 3]:
+            image_prefix = f"![PDF page 1 image {image_number}](data:image/jpeg;base64,"
+            assert image_prefix in header_row
+            assert result.text_content.count(image_prefix) == 1
+
+    def test_keep_data_uris_places_form_non_table_row_images_with_row_text(self):
+        """Images in form pages should stay near matching non-table rows too."""
+        page = _make_form_page()
+        page.extract_words.return_value = [
+            {
+                "text": "Standalone product row",
+                "x0": 50,
+                "x1": 180,
+                "top": 80,
+                "bottom": 90,
+            },
+            *page.extract_words.return_value,
+        ]
+        page.images = [
+            _make_pdf_image(x0=50, top=76, width=36, height=28),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        image_prefix = "![PDF page 1 image 1](data:image/jpeg;base64,"
+        standalone_row = next(
+            line
+            for line in result.text_content.splitlines()
+            if "Standalone product row" in line
+        )
+
+        assert image_prefix in standalone_row
+        assert result.text_content.count(image_prefix) == 1
+
+    def test_keep_data_uris_ignores_far_right_text_when_matching_row_images(self):
+        """A distant side label should not claim a nearby product image."""
+        page = _make_form_page()
+        page.width = 900
+        page.extract_words.return_value = [
+            *page.extract_words.return_value,
+            {
+                "text": "Side label",
+                "x0": 820,
+                "x1": 860,
+                "top": 30,
+                "bottom": 70,
+            },
+        ]
+        page.images = [
+            _make_pdf_image(x0=50, top=45, width=36, height=30),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        image_prefix = "![PDF page 1 image 1](data:image/jpeg;base64,"
+        alpha_row = next(
+            line for line in result.text_content.splitlines() if "Alpha" in line
+        )
+        beta_row = next(
+            line for line in result.text_content.splitlines() if "Beta" in line
+        )
+
+        assert image_prefix not in alpha_row
+        assert image_prefix in beta_row
+        assert result.text_content.count(image_prefix) == 1
 
     def test_keep_data_uris_reuses_page_text_for_image_filtering(self):
         """Plain pages with images should extract page text only once."""
