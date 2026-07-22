@@ -18,7 +18,7 @@ import tracemalloc
 import pytest
 from unittest.mock import patch, MagicMock
 
-from markitdown import MarkItDown
+from markitdown import MarkItDown, StreamInfo
 
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_files")
 
@@ -189,9 +189,10 @@ def _make_pdf_image(
     width: float,
     height: float,
     data: bytes = b"\xff\xd8fake jpeg",
+    **stream_attrs,
 ):
     return {
-        "stream": _FakePdfImageStream(data, "DCTDecode"),
+        "stream": _FakePdfImageStream(data, "DCTDecode", **stream_attrs),
         "x0": x0,
         "x1": x0 + width,
         "top": top,
@@ -271,6 +272,49 @@ class TestPdfMemoryOptimization:
                 f"page.close() was NOT called on page {i} — "
                 "this would cause memory to accumulate"
             )
+
+    def test_pdf_uses_filename_as_document_title(self):
+        page = _make_plain_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(
+                    extension=".pdf",
+                    mimetype="application/pdf",
+                    filename="示例工业公司介绍（for 示例客户）.pdf",
+                ),
+            )
+
+        assert result.title == "示例工业公司介绍（for 示例客户）"
+
+    def test_pdf_preserves_dotted_filename_without_pdf_suffix_as_document_title(self):
+        page = _make_plain_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(
+                    mimetype="application/pdf",
+                    filename="manual.v2",
+                ),
+            )
+
+        assert result.title == "manual.v2"
 
     def test_plain_text_pdf_falls_back_to_pdfminer(self):
         """Verify all-plain-text PDFs fall back to pdfminer.
@@ -641,7 +685,9 @@ class TestPdfMemoryOptimization:
         Image = _require_pillow()
 
         jpeg_stream = io.BytesIO()
-        Image.new("CMYK", (1, 1), (255, 255, 255, 255)).save(jpeg_stream, format="JPEG")
+        Image.new("CMYK", (100, 100), (255, 255, 255, 255)).save(
+            jpeg_stream, format="JPEG"
+        )
         page = _make_plain_page()
         page.images = [
             {
@@ -649,7 +695,14 @@ class TestPdfMemoryOptimization:
                     jpeg_stream.getvalue(),
                     "DCTDecode",
                     ColorSpace="DeviceCMYK",
-                )
+                    SMask=object(),
+                ),
+                "x0": 80,
+                "x1": 180,
+                "top": 120,
+                "bottom": 220,
+                "width": 100,
+                "height": 100,
             }
         ]
 
@@ -680,6 +733,247 @@ class TestPdfMemoryOptimization:
             "RGB"
         )
         assert converted.getpixel((0, 0)) == (255, 255, 255)
+
+    def test_keep_data_uris_applies_pdf_soft_mask_and_matte(self):
+        """PDF soft masks should become PNG alpha without dark matte fringes."""
+        Image = _require_pillow()
+        soft_mask = _FakePdfImageStream(
+            bytes([0, 128]),
+            "FlateDecode",
+            Width=2,
+            Height=1,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+            Matte=[0, 0, 0],
+        )
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    bytes([0, 0, 0, 128, 0, 0]),
+                    "FlateDecode",
+                    Width=2,
+                    Height=1,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceRGB",
+                    SMask=soft_mask,
+                ),
+                "x0": 80,
+                "x1": 180,
+                "top": 120,
+                "bottom": 220,
+                "width": 100,
+                "height": 100,
+            }
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        match = re.search(
+            r"data:image/png;base64,([A-Za-z0-9+/=]+)", result.text_content
+        )
+        assert match is not None
+
+        converted = Image.open(io.BytesIO(base64.b64decode(match.group(1))))
+        assert converted.mode == "RGBA"
+        assert converted.getpixel((0, 0))[3] == 0
+        red, green, blue, alpha = converted.getpixel((1, 0))
+        assert red >= 250
+        assert green == 0
+        assert blue == 0
+        assert alpha == 128
+
+    def test_keep_data_uris_applies_soft_mask_to_jpeg_with_alpha(self):
+        """JPEG image XObjects with a soft mask must retain an alpha channel."""
+        Image = _require_pillow()
+        jpeg_stream = io.BytesIO()
+        Image.new("RGB", (2, 2), (255, 0, 0)).save(jpeg_stream, format="JPEG")
+        soft_mask = _FakePdfImageStream(
+            bytes([0, 255, 128, 255]),
+            "FlateDecode",
+            Width=2,
+            Height=2,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+        page = _make_plain_page()
+        page.images = [
+            _make_pdf_image(
+                x0=80,
+                top=120,
+                width=100,
+                height=100,
+                data=jpeg_stream.getvalue(),
+                ColorSpace="DeviceRGB",
+                SMask=soft_mask,
+            )
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        match = re.search(
+            r"data:image/(?:png|webp);base64,([A-Za-z0-9+/=]+)",
+            result.text_content,
+        )
+        assert match is not None
+        converted = Image.open(io.BytesIO(base64.b64decode(match.group(1))))
+        assert converted.mode == "RGBA"
+        assert list(converted.getchannel("A").tobytes()) == [0, 255, 128, 255]
+
+    def test_pdf_image_filter_skips_translucent_grayscale_effect_layer(self):
+        """A grayscale soft effect paired with content is a rendering layer."""
+        Image = _require_pillow()
+        width = 100
+        height = 100
+        base = bytes(
+            40 + ((x + y) % 40)
+            for y in range(height)
+            for x in range(width)
+            for _ in range(3)
+        )
+        soft_mask = _FakePdfImageStream(
+            bytes(80 + ((x + y) % 80) for y in range(height) for x in range(width)),
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+        jpeg_stream = io.BytesIO()
+        Image.new("RGB", (width, height), (255, 0, 0)).save(jpeg_stream, format="JPEG")
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    base,
+                    "FlateDecode",
+                    Width=width,
+                    Height=height,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceRGB",
+                    SMask=soft_mask,
+                ),
+                "x0": 80,
+                "x1": 180,
+                "top": 120,
+                "bottom": 220,
+                "width": width,
+                "height": height,
+            },
+            _make_pdf_image(
+                x0=80,
+                top=120,
+                width=width,
+                height=height,
+                data=jpeg_stream.getvalue(),
+            ),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" not in result.text_content
+        assert "![PDF page 1 image 2](data:image/jpeg;base64," in result.text_content
+        assert result.text_content.count("data:image/") == 1
+
+    def test_pdf_image_filter_keeps_meaningful_translucent_grayscale_image(self):
+        """A standalone translucent grayscale logo is content, not an effect."""
+        Image = _require_pillow()
+        width = 100
+        height = 40
+        base = bytearray([128] * (width * height * 3))
+        alpha = bytearray(width * height)
+        for y in range(8, 32):
+            for x in range(10, 90):
+                pixel = y * width + x
+                base[pixel * 3 : pixel * 3 + 3] = bytes([60, 60, 60])
+                alpha[pixel] = 160
+
+        soft_mask = _FakePdfImageStream(
+            bytes(alpha),
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    bytes(base),
+                    "FlateDecode",
+                    Width=width,
+                    Height=height,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceRGB",
+                    SMask=soft_mask,
+                ),
+                "x0": 80,
+                "x1": 180,
+                "top": 120,
+                "bottom": 160,
+                "width": width,
+                "height": height,
+            }
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        match = re.search(
+            r"data:image/png;base64,([A-Za-z0-9+/=]+)", result.text_content
+        )
+        assert match is not None
+        converted = Image.open(io.BytesIO(base64.b64decode(match.group(1))))
+        assert converted.mode == "RGBA"
+        assert converted.getchannel("A").getextrema() == (0, 160)
 
     def test_pdf_image_filter_skips_obvious_framework_images(self):
         """PDF framework images should be skipped while content images remain."""
@@ -753,6 +1047,243 @@ class TestPdfMemoryOptimization:
 
         assert "data:image/" not in result.text_content
 
+    def test_pdf_image_filter_skips_solid_black_images(self):
+        """Low-opacity black soft-mask layers should not become black rectangles."""
+        Image = _require_pillow()
+        width = 100
+        height = 100
+        soft_mask = _FakePdfImageStream(
+            bytes([80]) * width * height,
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+
+        jpeg_stream = io.BytesIO()
+        Image.new("RGB", (width, height), (0, 0, 0)).save(jpeg_stream, format="JPEG")
+
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    bytes(width * height * 3),
+                    "FlateDecode",
+                    Width=width,
+                    Height=height,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceRGB",
+                    SMask=soft_mask,
+                ),
+                "x0": 80,
+                "x1": 80 + width,
+                "top": 120,
+                "bottom": 120 + height,
+                "width": width,
+                "height": height,
+            },
+            _make_pdf_image(
+                x0=220,
+                top=120,
+                width=width,
+                height=height,
+                data=jpeg_stream.getvalue(),
+                SMask=soft_mask,
+            ),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "data:image/" not in result.text_content
+
+    def test_pdf_image_filter_keeps_solid_black_images_without_smask(self):
+        """Standalone black content must not be mistaken for a transparency layer."""
+        Image = _require_pillow()
+        width = 100
+        height = 100
+
+        jpeg_stream = io.BytesIO()
+        Image.new("RGB", (width, height), (0, 0, 0)).save(jpeg_stream, format="JPEG")
+
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    bytes(width * height * 3),
+                    "FlateDecode",
+                    Width=width,
+                    Height=height,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceRGB",
+                ),
+                "x0": 80,
+                "x1": 80 + width,
+                "top": 120,
+                "bottom": 120 + height,
+                "width": width,
+                "height": height,
+            },
+            _make_pdf_image(
+                x0=220,
+                top=120,
+                width=width,
+                height=height,
+                data=jpeg_stream.getvalue(),
+            ),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1](data:image/png;base64," in result.text_content
+        assert "![PDF page 1 image 2](data:image/jpeg;base64," in result.text_content
+
+    def test_pdf_image_filter_skips_solid_black_cmyk_smask(self):
+        """CMYK filtering must use the same inverted-color normalization as output."""
+        Image = _require_pillow()
+        width = 100
+        height = 100
+
+        jpeg_stream = io.BytesIO()
+        Image.new("CMYK", (width, height), (0, 0, 0, 0)).save(
+            jpeg_stream, format="JPEG"
+        )
+        soft_mask = _FakePdfImageStream(
+            bytes([80]) * width * height,
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+
+        page = _make_plain_page()
+        page.images = [
+            _make_pdf_image(
+                x0=80,
+                top=120,
+                width=width,
+                height=height,
+                data=jpeg_stream.getvalue(),
+                ColorSpace="DeviceCMYK",
+                SMask=soft_mask,
+            )
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "data:image/" not in result.text_content
+
+    def test_pdf_image_filter_keeps_solid_black_icon_with_opaque_soft_mask(self):
+        """A meaningful opaque mask must preserve legitimate black artwork."""
+        Image = _require_pillow()
+        width = 100
+        height = 100
+        jpeg_stream = io.BytesIO()
+        Image.new("RGB", (width, height), (0, 0, 0)).save(
+            jpeg_stream, format="JPEG", quality=95
+        )
+        alpha = bytearray(width * height)
+        for y in range(25, 75):
+            for x in range(25, 75):
+                alpha[y * width + x] = 255
+        soft_mask = _FakePdfImageStream(
+            bytes(alpha),
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+
+        page = _make_plain_page()
+        page.images = [
+            _make_pdf_image(
+                x0=80,
+                top=120,
+                width=width,
+                height=height,
+                data=jpeg_stream.getvalue(),
+                ColorSpace="DeviceRGB",
+                SMask=soft_mask,
+            )
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            md = MarkItDown()
+            buf = io.BytesIO(b"fake pdf content")
+            from markitdown import StreamInfo
+
+            result = md.convert_stream(
+                buf,
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        match = re.search(
+            r"data:image/(?:png|webp);base64,([A-Za-z0-9+/=]+)",
+            result.text_content,
+        )
+        assert match is not None
+        converted = Image.open(io.BytesIO(base64.b64decode(match.group(1))))
+        assert converted.mode == "RGBA"
+        assert converted.getchannel("A").getextrema() == (0, 255)
+
     def test_pdf_image_filter_keeps_high_contrast_flate_images(self):
         """High-contrast Flate/Indexed images such as QR codes should remain."""
         _require_pillow()
@@ -790,13 +1321,173 @@ class TestPdfMemoryOptimization:
 
         assert "![PDF page 1 image 1](data:image/png;base64," in result.text_content
 
+    def test_pdf_images_deduplicate_repeated_headers_across_pages(self):
+        """A header repeated on at least three pages is a running header."""
+        pages = [_make_plain_page(), _make_plain_page(), _make_plain_page()]
+        for page in pages:
+            page.images = [
+                _make_pdf_image(
+                    x0=440,
+                    top=20,
+                    width=120,
+                    height=40,
+                    data=b"\xff\xd8shared header",
+                )
+            ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open(pages)
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" in result.text_content
+        assert "![PDF page 2 image 1]" not in result.text_content
+        assert "![PDF page 3 image 1]" not in result.text_content
+        assert result.text_content.count("data:image/") == 1
+
+    def test_pdf_images_keep_two_visually_equivalent_top_images(self):
+        """Two top-of-page matches are insufficient to confirm a running header."""
+        Image = _require_pillow()
+        encoded_logos = []
+        for size, quality in [((120, 40), 90), ((240, 80), 95)]:
+            logo = Image.new("RGB", size, "white")
+            logo.paste((80, 180, 40), (0, 0, size[0] // 4, size[1]))
+            logo.paste(
+                (10, 10, 10),
+                (size[0] // 3, size[1] // 4, size[0], size[1] * 3 // 4),
+            )
+            jpeg_stream = io.BytesIO()
+            logo.save(jpeg_stream, format="JPEG", quality=quality)
+            encoded_logos.append(jpeg_stream.getvalue())
+
+        pages = [_make_plain_page(), _make_plain_page()]
+        for page, encoded_logo in zip(pages, encoded_logos):
+            page.images = [
+                _make_pdf_image(
+                    x0=440,
+                    top=20,
+                    width=120,
+                    height=40,
+                    data=encoded_logo,
+                )
+            ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open(pages)
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" in result.text_content
+        assert "![PDF page 2 image 1]" in result.text_content
+        assert result.text_content.count("data:image/") == 2
+
+    def test_pdf_images_deduplicate_identical_content_within_page(self):
+        """Identical image content on one page should only be emitted once."""
+        page = _make_plain_page()
+        page.images = [
+            _make_pdf_image(
+                x0=80,
+                top=180,
+                width=180,
+                height=100,
+                data=b"\xff\xd8same page product",
+            ),
+            _make_pdf_image(
+                x0=300,
+                top=180,
+                width=180,
+                height=100,
+                data=b"\xff\xd8same page product",
+            ),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" in result.text_content
+        assert "![PDF page 1 image 2]" not in result.text_content
+        assert result.text_content.count("data:image/") == 1
+
+    def test_pdf_images_keep_identical_content_on_different_non_header_pages(self):
+        """Repeated product images on different pages preserve page semantics."""
+        pages = [_make_plain_page(), _make_plain_page()]
+        for page in pages:
+            page.images = [
+                _make_pdf_image(
+                    x0=80,
+                    top=180,
+                    width=180,
+                    height=100,
+                    data=b"\xff\xd8shared product",
+                )
+            ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open(pages)
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" in result.text_content
+        assert "![PDF page 2 image 1]" in result.text_content
+        assert result.text_content.count("data:image/") == 2
+
     def test_pdf_image_filter_can_be_disabled_with_environment(self, monkeypatch):
         """Set PDF_IMAGE_FILTER_ENABLED=false to keep all extractable images."""
         monkeypatch.setenv("PDF_IMAGE_FILTER_ENABLED", "false")
         page = _make_plain_page()
         page.images = [
-            _make_pdf_image(x0=10, top=10, width=1.5, height=700),
-            _make_pdf_image(x0=80, top=120, width=240, height=140),
+            _make_pdf_image(
+                x0=10,
+                top=10,
+                width=1.5,
+                height=700,
+                data=b"\xff\xd8framework image",
+            ),
+            _make_pdf_image(
+                x0=80,
+                top=120,
+                width=240,
+                height=140,
+                data=b"\xff\xd8content image",
+            ),
         ]
 
         with patch(

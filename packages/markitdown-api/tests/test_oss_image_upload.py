@@ -47,6 +47,35 @@ def test_replace_data_images_uploads_and_rewrites_markdown_image():
     assert uploader.calls == [("image/png", image_bytes)]
 
 
+def test_replace_data_images_uploads_duplicate_content_once():
+    image_bytes = b"shared-image-bytes"
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    markdown = (
+        f"![first](data:image/png;base64,{encoded})\n"
+        f"![second](data:image/png;base64,{encoded})"
+    )
+
+    class FakeUploader:
+        def __init__(self):
+            self.calls = []
+
+        def upload_image(self, mimetype, content):
+            self.calls.append((mimetype, content))
+            return "https://cdn.example.com/images/shared.png"
+
+    uploader = FakeUploader()
+
+    rewritten = replace_data_images_with_oss_urls(
+        markdown, uploader_factory=lambda: uploader
+    )
+
+    assert rewritten == (
+        "![first](https://cdn.example.com/images/shared.png)\n"
+        "![second](https://cdn.example.com/images/shared.png)"
+    )
+    assert uploader.calls == [("image/png", image_bytes)]
+
+
 def test_replace_data_images_keeps_data_uri_when_oss_is_unavailable():
     image_bytes = b"fake-png-bytes"
     encoded = base64.b64encode(image_bytes).decode("ascii")

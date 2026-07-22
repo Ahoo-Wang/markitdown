@@ -169,12 +169,18 @@ def replace_data_images_with_oss_urls(
         )
         return markdown
 
+    uploaded_urls: dict[tuple[str, str], str] = {}
+
     def replace(match: re.Match) -> str:
         mimetype = match.group("mimetype")
         payload = "".join(match.group("payload").split())
         try:
             content = base64.b64decode(payload, validate=True)
-            url = uploader.upload_image(mimetype, content)
+            cache_key = (mimetype.lower(), hashlib.sha256(content).hexdigest())
+            url = uploaded_urls.get(cache_key)
+            if url is None:
+                url = uploader.upload_image(mimetype, content)
+                uploaded_urls[cache_key] = url
         except Exception as exc:
             logger.warning(
                 "Failed to upload embedded image to OSS; keeping data URI: %s",
