@@ -157,6 +157,107 @@ this suffix is too long"""
     )
 
 
+def test_optimize_markdown_for_rag_uses_document_title_as_stable_h1():
+    markdown = """从一个组件开始
+这个示例端子
+开 始
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, document_title="示例工业公司介绍（for 示例客户）.pdf")
+        == """# 示例工业公司介绍（for 示例客户）
+从一个组件开始
+这个示例端子
+开始"""
+    )
+
+
+def test_optimize_markdown_for_rag_does_not_repeat_matching_source_title():
+    markdown = """Example Document
+Body text
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, document_title="Example Document.pdf")
+        == """# Example Document
+Body text"""
+    )
+
+
+def test_optimize_markdown_for_rag_keeps_repeated_section_headings():
+    markdown = """Report
+## Summary
+First section
+## Summary
+Second section
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown)
+        == """# Report
+## Summary
+First section
+## Summary
+Second section"""
+    )
+
+
+def test_optimize_markdown_for_rag_keeps_repeated_content_dates():
+    markdown = """Events
+2024/6/1
+First event
+2024/6/1
+Second event
+2024/6/1
+Third event
+"""
+
+    optimized = optimize_markdown_for_rag(markdown)
+
+    assert optimized.count("2024/6/1") == 3
+
+
+def test_optimize_markdown_for_rag_keeps_distinct_dated_rows():
+    markdown = """Schedule
+2024/6/1 Alpha release 1
+2024/6/2 Alpha release 2
+2024/6/3 Alpha release 3
+"""
+
+    optimized = optimize_markdown_for_rag(markdown)
+
+    assert "2024/6/1 Alpha release 1" in optimized
+    assert "2024/6/2 Alpha release 2" in optimized
+    assert "2024/6/3 Alpha release 3" in optimized
+
+
+def test_optimize_markdown_for_rag_removes_pdf_footers_and_preserves_cross_page_images():
+    markdown = """产品介绍
+2024/6/1 ACME ELECTRIC - DOC 2
+![PDF page 2 image 1](data:image/png;base64,c2hhcmVk)
+
+功能安全
+| 2024/6/1 | ACME ELECTRIC - | DOC | 3 |
+| ---------- | ----------------- | -- | - |
+![PDF page 3 image 1](data:image/png;base64,c2hhcmVk)
+
+安全服务
+2024/6/1 ACME ELECTRIC - DOC 4
+![PDF page 4 image 2](https://cdn.example.com/unique.png)
+
+产品清单
+2024/6/1
+"""
+
+    optimized = optimize_markdown_for_rag(markdown, document_title="示例工业公司介绍.pdf")
+
+    assert optimized.startswith("# 示例工业公司介绍\n")
+    assert "2024/6/1" not in optimized
+    assert optimized.count("data:image/png;base64,c2hhcmVk") == 2
+    assert optimized.count("https://cdn.example.com/unique.png") == 1
+    assert "![产品介绍 - PDF page 2 image 1]" in optimized
+
+
 def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
     markdown = "产品目录\n2\n"
 
@@ -196,3 +297,35 @@ def test_api_converter_uses_configured_rag_heading_keywords(monkeypatch):
         .result.markdown
         == "# 产品目录\n\n## 目录"
     )
+
+
+def test_api_converter_cleans_before_upload_without_removing_image_references(
+    monkeypatch,
+):
+    markdown = """Document
+![PDF page 1 image 1](data:image/png;base64,c2hhcmVk)
+![PDF page 2 image 1](data:image/png;base64,c2hhcmVk)
+"""
+    observed = []
+
+    class StubApiConverter(ApiConverter):
+        def _internal_convert(self, **kwargs):
+            return DocumentConverterResult(markdown=markdown, title="Document")
+
+    def fake_upload(markdown_value):
+        observed.append(markdown_value)
+        return markdown_value.replace(
+            "data:image/png;base64,c2hhcmVk", "https://cdn.example.com/shared.png"
+        )
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.replace_data_images_with_oss_urls", fake_upload
+    )
+
+    result = StubApiConverter(ConvertRequest()).convert().result.markdown
+
+    assert len(observed) == 1
+    assert observed[0].splitlines().count("# Document") == 1
+    assert observed[0].splitlines().count("Document") == 0
+    assert observed[0].count("data:image/png;base64,c2hhcmVk") == 2
+    assert result.count("https://cdn.example.com/shared.png") == 2

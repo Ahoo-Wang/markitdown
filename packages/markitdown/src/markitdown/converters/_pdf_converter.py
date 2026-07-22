@@ -1,5 +1,6 @@
 import sys
 import base64
+import hashlib
 import io
 import os
 import re
@@ -59,6 +60,16 @@ def _merge_partial_numbering_lines(text: str) -> str:
     return "\n".join(result_lines)
 
 
+def _pdf_document_title(stream_info: StreamInfo) -> str | None:
+    filename = stream_info.filename
+    if not filename:
+        return None
+
+    basename = os.path.basename(filename).strip()
+    title, _ = os.path.splitext(basename)
+    return title.strip() or None
+
+
 # Load dependencies
 _dependency_exc_info = None
 try:
@@ -70,10 +81,11 @@ except ImportError:
     _dependency_exc_info = sys.exc_info()
 
 try:
-    from PIL import Image, ImageChops, ImageStat
+    from PIL import Image, ImageChops, ImageMath, ImageStat
 except ImportError:
     Image = None
     ImageChops = None
+    ImageMath = None
     ImageStat = None
 
 
@@ -83,6 +95,8 @@ ACCEPTED_MIME_TYPE_PREFIXES = [
 ]
 
 ACCEPTED_FILE_EXTENSIONS = [".pdf"]
+
+_PDF_LOW_OPACITY_ALPHA_MAX = 127
 
 
 def _pdf_name(value: Any) -> str:
@@ -237,7 +251,7 @@ def _flate_pdf_image_to_pil(data: bytes, attrs: dict[Any, Any]) -> Any | None:
     return image
 
 
-def _dct_cmyk_pdf_image_to_jpeg(data: bytes, attrs: dict[Any, Any]) -> bytes | None:
+def _dct_cmyk_pdf_image_to_pil(data: bytes, attrs: dict[Any, Any]) -> Any | None:
     if Image is None or ImageChops is None:
         return None
 
@@ -255,7 +269,182 @@ def _dct_cmyk_pdf_image_to_jpeg(data: bytes, attrs: dict[Any, Any]) -> bytes | N
         return None
 
     white = Image.new("CMYK", image.size, (255, 255, 255, 255))
-    image = ImageChops.subtract(white, image).convert("RGB")
+    return ImageChops.subtract(white, image).convert("RGB")
+
+
+def _pdf_image_stream_to_pil(data: bytes, attrs: dict[Any, Any]) -> Any | None:
+    if Image is None:
+        return None
+
+    filters = attrs.get("Filter")
+    if "FlateDecode" in _pdf_filter_names(filters):
+        return _flate_pdf_image_to_pil(data, attrs)
+    if "DCTDecode" in _pdf_filter_names(filters):
+        cmyk_image = _dct_cmyk_pdf_image_to_pil(data, attrs)
+        if cmyk_image is not None:
+            return cmyk_image
+
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+        return image
+    except Exception:
+        return None
+
+
+def _pdf_soft_mask_to_alpha(
+    attrs: dict[Any, Any], target_size: tuple[int, int]
+) -> tuple[Any, dict[Any, Any]] | None:
+    if Image is None:
+        return None
+
+    soft_mask = _resolve_pdf_value(attrs.get("SMask"))
+    if soft_mask is None or not hasattr(soft_mask, "get_data"):
+        return None
+
+    soft_mask_attrs = getattr(soft_mask, "attrs", {})
+    try:
+        soft_mask_data = soft_mask.get_data()
+    except Exception:
+        return None
+
+    mask_image = _pdf_image_stream_to_pil(soft_mask_data, soft_mask_attrs)
+    if mask_image is None:
+        return None
+
+    alpha = mask_image.convert("L")
+    decode = _resolve_pdf_value(soft_mask_attrs.get("Decode"))
+    if isinstance(decode, (list, tuple)) and len(decode) >= 2:
+        try:
+            minimum = float(decode[0])
+            maximum = float(decode[1])
+            alpha = alpha.point(
+                lambda value: max(
+                    0,
+                    min(
+                        255,
+                        round(255 * (minimum + (value / 255) * (maximum - minimum))),
+                    ),
+                )
+            )
+        except (TypeError, ValueError):
+            pass
+
+    if alpha.size != target_size:
+        resampling = getattr(Image, "Resampling", Image)
+        alpha = alpha.resize(target_size, resampling.LANCZOS)
+
+    return alpha, soft_mask_attrs
+
+
+def _pdf_matte_rgb(
+    image_attrs: dict[Any, Any], soft_mask_attrs: dict[Any, Any]
+) -> tuple[int, int, int] | None:
+    matte = _resolve_pdf_value(soft_mask_attrs.get("Matte"))
+    if not isinstance(matte, (list, tuple)):
+        return None
+
+    try:
+        components = [
+            max(0, min(255, round(float(component) * 255))) for component in matte
+        ]
+    except (TypeError, ValueError):
+        return None
+
+    colorspace = _resolve_pdf_value(image_attrs.get("ColorSpace"))
+    colorspace_name = _pdf_name(colorspace)
+    if colorspace_name == "DeviceRGB" and len(components) >= 3:
+        return components[0], components[1], components[2]
+    if colorspace_name == "DeviceGray" and components:
+        return (components[0],) * 3
+    if colorspace_name == "DeviceCMYK" and len(components) >= 4:
+        return _cmyk_to_rgb_components(*components[:4])
+    return None
+
+
+def _remove_pdf_matte(
+    image: Any, alpha: Any, matte: tuple[int, int, int] | None
+) -> Any:
+    rgb = image.convert("RGB")
+    if matte is None or ImageMath is None:
+        return rgb
+
+    evaluator = getattr(ImageMath, "unsafe_eval", None) or getattr(
+        ImageMath, "eval", None
+    )
+    if evaluator is None:
+        return rgb
+
+    corrected_channels = []
+    for channel, matte_component in zip(rgb.split(), matte):
+        try:
+            corrected = evaluator(
+                "convert(m + (c - m) * 255 / max(a, 1), 'L')",
+                c=channel,
+                a=alpha,
+                m=matte_component,
+            )
+        except Exception:
+            return rgb
+        corrected_channels.append(corrected)
+
+    return Image.merge("RGB", tuple(corrected_channels))
+
+
+def _pdf_image_with_soft_mask(data: bytes, attrs: dict[Any, Any]) -> Any | None:
+    image = _pdf_image_stream_to_pil(data, attrs)
+    if image is None:
+        return None
+
+    soft_mask = _pdf_soft_mask_to_alpha(attrs, image.size)
+    if soft_mask is None:
+        return None
+
+    alpha, soft_mask_attrs = soft_mask
+    matte = _pdf_matte_rgb(attrs, soft_mask_attrs)
+    rgb = _remove_pdf_matte(image, alpha, matte)
+    rgba = rgb.convert("RGBA")
+    rgba.putalpha(alpha)
+    return rgba
+
+
+def _is_translucent_grayscale_effect(image: Any) -> bool:
+    if (
+        not _pdf_image_filter_enabled()
+        or Image is None
+        or ImageChops is None
+        or "A" not in image.getbands()
+    ):
+        return False
+
+    if image.getchannel("A").getextrema()[1] >= 250:
+        return False
+
+    sample = image.resize((64, 64))
+    red, green, blue = sample.convert("RGB").split()
+    red_green_difference = ImageChops.difference(red, green).getextrema()[1]
+    red_blue_difference = ImageChops.difference(red, blue).getextrema()[1]
+    return red_green_difference <= 4 and red_blue_difference <= 4
+
+
+def _encode_pdf_image_with_alpha(image: Any, filters: Any) -> tuple[str, bytes]:
+    if "DCTDecode" in _pdf_filter_names(filters):
+        webp_stream = io.BytesIO()
+        try:
+            image.save(webp_stream, format="WEBP", quality=95, method=4)
+            return "image/webp", webp_stream.getvalue()
+        except (KeyError, OSError, ValueError):
+            pass
+
+    png_stream = io.BytesIO()
+    image.save(png_stream, format="PNG", optimize=True)
+    return "image/png", png_stream.getvalue()
+
+
+def _dct_cmyk_pdf_image_to_jpeg(data: bytes, attrs: dict[Any, Any]) -> bytes | None:
+    image = _dct_cmyk_pdf_image_to_pil(data, attrs)
+    if image is None:
+        return None
 
     jpeg_stream = io.BytesIO()
     image.save(jpeg_stream, format="JPEG", quality=95, optimize=True)
@@ -373,6 +562,9 @@ def _is_obvious_framework_pdf_image(
     if area_ratio <= 0.0015 and max_dimension <= 80:
         return True
 
+    if _is_low_opacity_solid_black_pdf_image(image):
+        return True
+
     if _is_low_contrast_flate_mask(image):
         return True
 
@@ -384,6 +576,43 @@ def _is_obvious_framework_pdf_image(
         return True
 
     return False
+
+
+def _is_low_opacity_solid_black_pdf_image(image: Any) -> bool:
+    if Image is None or not isinstance(image, dict):
+        return False
+
+    stream = image.get("stream")
+    if stream is None:
+        return False
+
+    attrs = getattr(stream, "attrs", {})
+    if attrs.get("SMask") is None:
+        return False
+
+    try:
+        data = stream.get_data()
+    except Exception:
+        return False
+
+    image_value = _pdf_image_stream_to_pil(data, attrs)
+    if image_value is None:
+        return False
+
+    try:
+        extrema = image_value.convert("RGB").getextrema()
+    except Exception:
+        return False
+
+    if not all(maximum <= 1 for _, maximum in extrema):
+        return False
+
+    soft_mask = _pdf_soft_mask_to_alpha(attrs, image_value.size)
+    if soft_mask is None:
+        return False
+
+    alpha, _ = soft_mask
+    return alpha.getextrema()[1] <= _PDF_LOW_OPACITY_ALPHA_MAX
 
 
 def _is_low_contrast_flate_mask(image: Any) -> bool:
@@ -436,6 +665,18 @@ def _pdf_image_to_data_uri(image: Any) -> str | None:
 
     attrs = getattr(stream, "attrs", {})
     filters = attrs.get("Filter")
+    if attrs.get("SMask") is not None:
+        image_with_soft_mask = _pdf_image_with_soft_mask(data, attrs)
+        if image_with_soft_mask is not None:
+            if _is_translucent_grayscale_effect(image_with_soft_mask):
+                return None
+
+            mimetype, image_data = _encode_pdf_image_with_alpha(
+                image_with_soft_mask, filters
+            )
+            payload = base64.b64encode(image_data).decode("ascii")
+            return f"data:{mimetype};base64,{payload}"
+
     if "DCTDecode" in _pdf_filter_names(filters):
         jpeg_data = _dct_cmyk_pdf_image_to_jpeg(data, attrs)
         if jpeg_data is not None:
@@ -459,10 +700,75 @@ def _pdf_image_to_data_uri(image: Any) -> str | None:
     return f"data:{mimetype};base64,{payload}"
 
 
+def _is_pdf_header_image(page: Any, image: Any) -> bool:
+    if not isinstance(image, dict):
+        return False
+
+    page_width = _float_or_none(getattr(page, "width", None))
+    page_height = _float_or_none(getattr(page, "height", None))
+    image_width, image_height = _pdf_image_dimensions(image)
+    top = _float_or_none(image.get("top"))
+    bottom = _float_or_none(image.get("bottom"))
+    if (
+        page_width is None
+        or page_height is None
+        or image_width is None
+        or image_height is None
+        or top is None
+        or bottom is None
+        or image_height <= 0
+    ):
+        return False
+
+    return (
+        top <= page_height * 0.15
+        and bottom <= page_height * 0.20
+        and image_height <= page_height * 0.12
+        and image_width <= page_width * 0.40
+        and image_width / image_height >= 1.8
+    )
+
+
+def _pdf_header_image_signature(data_uri: str) -> Any | None:
+    if Image is None:
+        return None
+
+    metadata, separator, payload = data_uri.partition(",")
+    if not separator or ";base64" not in metadata:
+        return None
+
+    try:
+        image_data = base64.b64decode(payload, validate=True)
+        image = Image.open(io.BytesIO(image_data)).convert("RGBA")
+        alpha_bbox = image.getchannel("A").getbbox()
+        if alpha_bbox is None:
+            return None
+        image = image.crop(alpha_bbox)
+        background = Image.new("RGBA", image.size, "white")
+        image = Image.alpha_composite(background, image).convert("RGB")
+        resampling = getattr(Image, "Resampling", Image)
+        return image.resize((256, 48), resampling.LANCZOS)
+    except Exception:
+        return None
+
+
+def _pdf_header_images_match(first: Any, second: Any) -> bool:
+    if ImageChops is None or ImageStat is None:
+        return False
+
+    difference = ImageChops.difference(first, second)
+    statistics = ImageStat.Stat(difference)
+    return max(statistics.mean) <= 18 and max(statistics.rms) <= 32
+
+
 def _extract_pdf_image_markdown(
-    page: Any, page_number: int, page_has_text_layer: bool | None = None
+    page: Any,
+    page_number: int,
+    page_has_text_layer: bool | None = None,
+    seen_header_images: list[tuple[bytes, Any | None]] | None = None,
 ) -> list[str]:
     markdown_images: list[str] = []
+    seen_page_image_digests: set[bytes] = set()
     if page_has_text_layer is None:
         try:
             page_has_text_layer = bool((page.extract_text() or "").strip())
@@ -476,6 +782,26 @@ def _extract_pdf_image_markdown(
         data_uri = _pdf_image_to_data_uri(image)
         if data_uri is None:
             continue
+
+        image_digest = hashlib.sha256(data_uri.encode("ascii")).digest()
+        if image_digest in seen_page_image_digests:
+            continue
+        seen_page_image_digests.add(image_digest)
+
+        if seen_header_images is not None and _is_pdf_header_image(page, image):
+            signature = _pdf_header_image_signature(data_uri)
+            if any(
+                image_digest == seen_digest
+                or (
+                    signature is not None
+                    and seen_signature is not None
+                    and _pdf_header_images_match(signature, seen_signature)
+                )
+                for seen_digest, seen_signature in seen_header_images
+            ):
+                continue
+            seen_header_images.append((image_digest, signature))
+
         alt_text = f"PDF page {page_number} image {image_number}"
         markdown_images.append(f"![{alt_text}]({data_uri})")
     return markdown_images
@@ -1215,6 +1541,7 @@ class PdfConverter(DocumentConverter):
             page_chunks: list[dict[str, Any]] = []
             form_page_count = 0
             multi_column_page_count = 0
+            seen_header_images: list[tuple[bytes, Any | None]] = []
 
             with pdfplumber.open(pdf_bytes) as pdf:
                 for page_idx, page in enumerate(pdf.pages):
@@ -1237,7 +1564,10 @@ class PdfConverter(DocumentConverter):
 
                     page_image_chunks = (
                         _extract_pdf_image_markdown(
-                            page, page_idx + 1, page_has_text_layer
+                            page,
+                            page_idx + 1,
+                            page_has_text_layer,
+                            seen_header_images,
                         )
                         if keep_data_uris
                         else []
@@ -1291,4 +1621,6 @@ class PdfConverter(DocumentConverter):
         # Post-process to merge MasterFormat-style partial numbering with following text
         markdown = _merge_partial_numbering_lines(markdown)
 
-        return DocumentConverterResult(markdown=markdown)
+        return DocumentConverterResult(
+            markdown=markdown, title=_pdf_document_title(stream_info)
+        )
