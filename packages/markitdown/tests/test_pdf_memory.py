@@ -824,8 +824,8 @@ class TestPdfMemoryOptimization:
         assert list(converted.getchannel("A").tobytes()) == [0, 255, 128, 255]
 
     def test_pdf_image_filter_skips_translucent_grayscale_effect_layer(self):
-        """Standalone grayscale soft effects are rendering layers, not content."""
-        _require_pillow()
+        """A grayscale soft effect paired with content is a rendering layer."""
+        Image = _require_pillow()
         width = 100
         height = 100
         base = bytes(
@@ -842,6 +842,8 @@ class TestPdfMemoryOptimization:
             BitsPerComponent=8,
             ColorSpace="DeviceGray",
         )
+        jpeg_stream = io.BytesIO()
+        Image.new("RGB", (width, height), (255, 0, 0)).save(jpeg_stream, format="JPEG")
         page = _make_plain_page()
         page.images = [
             {
@@ -858,6 +860,73 @@ class TestPdfMemoryOptimization:
                 "x1": 180,
                 "top": 120,
                 "bottom": 220,
+                "width": width,
+                "height": height,
+            },
+            _make_pdf_image(
+                x0=80,
+                top=120,
+                width=width,
+                height=height,
+                data=jpeg_stream.getvalue(),
+            ),
+        ]
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(extension=".pdf", mimetype="application/pdf"),
+                keep_data_uris=True,
+            )
+
+        assert "![PDF page 1 image 1]" not in result.text_content
+        assert "![PDF page 1 image 2](data:image/jpeg;base64," in result.text_content
+        assert result.text_content.count("data:image/") == 1
+
+    def test_pdf_image_filter_keeps_meaningful_translucent_grayscale_image(self):
+        """A standalone translucent grayscale logo is content, not an effect."""
+        Image = _require_pillow()
+        width = 100
+        height = 40
+        base = bytearray([128] * (width * height * 3))
+        alpha = bytearray(width * height)
+        for y in range(8, 32):
+            for x in range(10, 90):
+                pixel = y * width + x
+                base[pixel * 3 : pixel * 3 + 3] = bytes([60, 60, 60])
+                alpha[pixel] = 160
+
+        soft_mask = _FakePdfImageStream(
+            bytes(alpha),
+            "FlateDecode",
+            Width=width,
+            Height=height,
+            BitsPerComponent=8,
+            ColorSpace="DeviceGray",
+        )
+        page = _make_plain_page()
+        page.images = [
+            {
+                "stream": _FakePdfImageStream(
+                    bytes(base),
+                    "FlateDecode",
+                    Width=width,
+                    Height=height,
+                    BitsPerComponent=8,
+                    ColorSpace="DeviceRGB",
+                    SMask=soft_mask,
+                ),
+                "x0": 80,
+                "x1": 180,
+                "top": 120,
+                "bottom": 160,
                 "width": width,
                 "height": height,
             }
@@ -877,7 +946,13 @@ class TestPdfMemoryOptimization:
                 keep_data_uris=True,
             )
 
-        assert "data:image/" not in result.text_content
+        match = re.search(
+            r"data:image/png;base64,([A-Za-z0-9+/=]+)", result.text_content
+        )
+        assert match is not None
+        converted = Image.open(io.BytesIO(base64.b64decode(match.group(1))))
+        assert converted.mode == "RGBA"
+        assert converted.getchannel("A").getextrema() == (0, 160)
 
     def test_pdf_image_filter_skips_obvious_framework_images(self):
         """PDF framework images should be skipped while content images remain."""
@@ -1226,8 +1301,8 @@ class TestPdfMemoryOptimization:
         assert "![PDF page 1 image 1](data:image/png;base64," in result.text_content
 
     def test_pdf_images_deduplicate_repeated_headers_across_pages(self):
-        """The same header image should only be emitted on its first page."""
-        pages = [_make_plain_page(), _make_plain_page()]
+        """A header repeated on at least three pages is a running header."""
+        pages = [_make_plain_page(), _make_plain_page(), _make_plain_page()]
         for page in pages:
             page.images = [
                 _make_pdf_image(
@@ -1255,10 +1330,11 @@ class TestPdfMemoryOptimization:
 
         assert "![PDF page 1 image 1]" in result.text_content
         assert "![PDF page 2 image 1]" not in result.text_content
+        assert "![PDF page 3 image 1]" not in result.text_content
         assert result.text_content.count("data:image/") == 1
 
-    def test_pdf_images_deduplicate_visually_equivalent_header_variants(self):
-        """Resized or re-encoded variants of the same header logo are duplicates."""
+    def test_pdf_images_keep_two_visually_equivalent_top_images(self):
+        """Two top-of-page matches are insufficient to confirm a running header."""
         Image = _require_pillow()
         encoded_logos = []
         for size, quality in [((120, 40), 90), ((240, 80), 95)]:
@@ -1299,8 +1375,8 @@ class TestPdfMemoryOptimization:
             )
 
         assert "![PDF page 1 image 1]" in result.text_content
-        assert "![PDF page 2 image 1]" not in result.text_content
-        assert result.text_content.count("data:image/") == 1
+        assert "![PDF page 2 image 1]" in result.text_content
+        assert result.text_content.count("data:image/") == 2
 
     def test_pdf_images_deduplicate_identical_content_within_page(self):
         """Identical image content on one page should only be emitted once."""

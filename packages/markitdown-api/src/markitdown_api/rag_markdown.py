@@ -7,6 +7,7 @@ _MARKDOWN_IMAGE_RE = re.compile(
 _FENCE_RE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})")
 _TABLE_SEPARATOR_RE = re.compile(r"^\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)?\|?$")
 _DATE_RE = re.compile(r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b")
+_PDF_IMAGE_LINE_RE = re.compile(r"^!\[(?:.* - )?PDF page \d+ image \d+\]\(")
 _CJK_SPACING_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])")
 
 _NOISE_LINES = {"+", "-", "--", "是", "否", "×", "√", "", "•"}
@@ -109,7 +110,6 @@ def _normalize_document_title(title: str | None) -> str | None:
         return None
 
     normalized = title.strip().lstrip("#").strip()
-    normalized = re.sub(r"\.[A-Za-z0-9]{1,8}$", "", normalized)
     return normalized or None
 
 
@@ -134,7 +134,7 @@ def _remove_repeated_page_footers(lines: list[str]) -> list[str]:
     output: list[str] = []
     fence_marker: str | None = None
     skip_separator = False
-    for line in lines:
+    for line_index, line in enumerate(lines):
         marker = _fence_marker(line)
         if fence_marker:
             output.append(line)
@@ -157,6 +157,7 @@ def _remove_repeated_page_footers(lines: list[str]) -> list[str]:
         if (
             standalone_date is not None
             and standalone_date.group(0) in repeated_footer_dates
+            and _next_nonblank_line_is_pdf_image(lines, line_index + 1)
         ) or (signature is not None and footer_signatures[signature] >= 3):
             skip_separator = stripped.startswith("|")
             continue
@@ -164,6 +165,14 @@ def _remove_repeated_page_footers(lines: list[str]) -> list[str]:
         output.append(line)
 
     return output
+
+
+def _next_nonblank_line_is_pdf_image(lines: list[str], start: int) -> bool:
+    for line in lines[start:]:
+        stripped = line.strip()
+        if stripped:
+            return _PDF_IMAGE_LINE_RE.match(stripped) is not None
+    return False
 
 
 def _non_fenced_raw_lines(lines: list[str]):

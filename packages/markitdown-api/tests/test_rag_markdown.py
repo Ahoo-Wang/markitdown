@@ -2,6 +2,7 @@ from markitdown import DocumentConverterResult
 
 from markitdown_api.api_converter import ApiConverter
 from markitdown_api.api_types import ConvertRequest, RagOptions
+from markitdown_api.oss_image_upload import replace_data_images_with_oss_urls
 from markitdown_api.rag_markdown import optimize_markdown_for_rag
 
 
@@ -164,7 +165,7 @@ def test_optimize_markdown_for_rag_uses_document_title_as_stable_h1():
 """
 
     assert (
-        optimize_markdown_for_rag(markdown, document_title="示例工业公司介绍（for 示例客户）.pdf")
+        optimize_markdown_for_rag(markdown, document_title="示例工业公司介绍（for 示例客户）")
         == """# 示例工业公司介绍（for 示例客户）
 从一个组件开始
 这个示例端子
@@ -178,8 +179,20 @@ Body text
 """
 
     assert (
-        optimize_markdown_for_rag(markdown, document_title="Example Document.pdf")
+        optimize_markdown_for_rag(markdown, document_title="Example Document")
         == """# Example Document
+Body text"""
+    )
+
+
+def test_optimize_markdown_for_rag_preserves_dots_in_document_title():
+    markdown = """manual.v2
+Body text
+"""
+
+    assert (
+        optimize_markdown_for_rag(markdown, document_title="manual.v2")
+        == """# manual.v2
 Body text"""
     )
 
@@ -244,18 +257,36 @@ def test_optimize_markdown_for_rag_removes_pdf_footers_and_preserves_cross_page_
 安全服务
 2024/6/1 ACME ELECTRIC - DOC 4
 ![PDF page 4 image 2](https://cdn.example.com/unique.png)
-
-产品清单
-2024/6/1
 """
 
-    optimized = optimize_markdown_for_rag(markdown, document_title="示例工业公司介绍.pdf")
+    optimized = optimize_markdown_for_rag(markdown, document_title="示例工业公司介绍")
 
     assert optimized.startswith("# 示例工业公司介绍\n")
     assert "2024/6/1" not in optimized
     assert optimized.count("data:image/png;base64,c2hhcmVk") == 2
     assert optimized.count("https://cdn.example.com/unique.png") == 1
     assert "![产品介绍 - PDF page 2 image 1]" in optimized
+
+
+def test_optimize_markdown_for_rag_only_removes_standalone_date_at_pdf_image_boundary():
+    markdown = """Report
+2024/6/1 ACME DOC 1
+Details
+2024/6/1 ACME DOC 2
+Business date
+2024/6/1
+Description continues
+2024/6/1 ACME DOC 3
+Product page
+2024/6/1
+![PDF page 4 image 1](https://cdn.example.com/product.png)
+"""
+
+    optimized = optimize_markdown_for_rag(markdown)
+
+    assert "Business date\n2024/6/1\nDescription continues" in optimized
+    assert "Product page\n2024/6/1\n![" not in optimized
+    assert "![Product page - PDF page 4 image 1]" in optimized
 
 
 def test_api_converter_applies_rag_optimizer_by_default(monkeypatch):
@@ -329,3 +360,32 @@ def test_api_converter_cleans_before_upload_without_removing_image_references(
     assert observed[0].splitlines().count("Document") == 0
     assert observed[0].count("data:image/png;base64,c2hhcmVk") == 2
     assert result.count("https://cdn.example.com/shared.png") == 2
+
+
+def test_api_converter_uploads_wrapped_data_uri_after_rag_cleanup(monkeypatch):
+    markdown = """Document
+![chart](data:image/png;base64,QUJD
+REVG)
+"""
+    upload_calls = []
+
+    class StubApiConverter(ApiConverter):
+        def _internal_convert(self, **kwargs):
+            return DocumentConverterResult(markdown=markdown, title="Document")
+
+    class FakeUploader:
+        def upload_image(self, mimetype, content):
+            upload_calls.append((mimetype, content))
+            return "https://cdn.example.com/chart.png"
+
+    monkeypatch.setattr(
+        "markitdown_api.api_converter.replace_data_images_with_oss_urls",
+        lambda markdown_value: replace_data_images_with_oss_urls(
+            markdown_value, uploader_factory=FakeUploader
+        ),
+    )
+
+    result = StubApiConverter(ConvertRequest()).convert().result.markdown
+
+    assert result == "# Document\n![chart](https://cdn.example.com/chart.png)"
+    assert upload_calls == [("image/png", b"ABCDEF")]

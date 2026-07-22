@@ -4,6 +4,7 @@ import hashlib
 import io
 import os
 import re
+from dataclasses import dataclass, field
 from typing import BinaryIO, Any
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
@@ -97,6 +98,17 @@ ACCEPTED_MIME_TYPE_PREFIXES = [
 ACCEPTED_FILE_EXTENSIONS = [".pdf"]
 
 _PDF_LOW_OPACITY_ALPHA_MAX = 127
+_PDF_DECORATIVE_EFFECT_OVERLAP_RATIO = 0.90
+_PDF_HEADER_MIN_REPEAT_PAGES = 3
+
+
+@dataclass
+class _PdfHeaderImageGroup:
+    digest: bytes
+    signature: Any | None
+    page_numbers: set[int] = field(default_factory=set)
+    occurrences: list[tuple[list[str], str]] = field(default_factory=list)
+    confirmed: bool = False
 
 
 def _pdf_name(value: Any) -> str:
@@ -427,6 +439,69 @@ def _is_translucent_grayscale_effect(image: Any) -> bool:
     return red_green_difference <= 4 and red_blue_difference <= 4
 
 
+def _pdf_image_box(image: Any) -> tuple[float, float, float, float] | None:
+    if not isinstance(image, dict):
+        return None
+
+    x0 = _float_or_none(image.get("x0"))
+    x1 = _float_or_none(image.get("x1"))
+    top = _float_or_none(image.get("top"))
+    bottom = _float_or_none(image.get("bottom"))
+    if x0 is None or x1 is None or top is None or bottom is None:
+        return None
+    if x1 <= x0 or bottom <= top:
+        return None
+    return x0, top, x1, bottom
+
+
+def _pdf_images_overlap_ratio(first: Any, second: Any) -> float:
+    first_box = _pdf_image_box(first)
+    second_box = _pdf_image_box(second)
+    if first_box is None or second_box is None:
+        return 0.0
+
+    first_x0, first_top, first_x1, first_bottom = first_box
+    second_x0, second_top, second_x1, second_bottom = second_box
+    overlap_width = max(0.0, min(first_x1, second_x1) - max(first_x0, second_x0))
+    overlap_height = max(
+        0.0, min(first_bottom, second_bottom) - max(first_top, second_top)
+    )
+    overlap_area = overlap_width * overlap_height
+    first_area = (first_x1 - first_x0) * (first_bottom - first_top)
+    second_area = (second_x1 - second_x0) * (second_bottom - second_top)
+    return overlap_area / min(first_area, second_area)
+
+
+def _is_paired_translucent_grayscale_effect(page: Any, image: Any) -> bool:
+    if not isinstance(image, dict):
+        return False
+
+    stream = image.get("stream")
+    if stream is None:
+        return False
+
+    attrs = getattr(stream, "attrs", {})
+    if attrs.get("SMask") is None:
+        return False
+
+    try:
+        image_with_soft_mask = _pdf_image_with_soft_mask(stream.get_data(), attrs)
+    except Exception:
+        return False
+
+    if image_with_soft_mask is None or not _is_translucent_grayscale_effect(
+        image_with_soft_mask
+    ):
+        return False
+
+    return any(
+        other is not image
+        and _pdf_images_overlap_ratio(image, other)
+        >= _PDF_DECORATIVE_EFFECT_OVERLAP_RATIO
+        for other in (getattr(page, "images", []) or [])
+    )
+
+
 def _encode_pdf_image_with_alpha(image: Any, filters: Any) -> tuple[str, bytes]:
     if "DCTDecode" in _pdf_filter_names(filters):
         webp_stream = io.BytesIO()
@@ -565,6 +640,9 @@ def _is_obvious_framework_pdf_image(
     if _is_low_opacity_solid_black_pdf_image(image):
         return True
 
+    if _is_paired_translucent_grayscale_effect(page, image):
+        return True
+
     if _is_low_contrast_flate_mask(image):
         return True
 
@@ -668,9 +746,6 @@ def _pdf_image_to_data_uri(image: Any) -> str | None:
     if attrs.get("SMask") is not None:
         image_with_soft_mask = _pdf_image_with_soft_mask(data, attrs)
         if image_with_soft_mask is not None:
-            if _is_translucent_grayscale_effect(image_with_soft_mask):
-                return None
-
             mimetype, image_data = _encode_pdf_image_with_alpha(
                 image_with_soft_mask, filters
             )
@@ -765,7 +840,7 @@ def _extract_pdf_image_markdown(
     page: Any,
     page_number: int,
     page_has_text_layer: bool | None = None,
-    seen_header_images: list[tuple[bytes, Any | None]] | None = None,
+    header_image_groups: list[_PdfHeaderImageGroup] | None = None,
 ) -> list[str]:
     markdown_images: list[str] = []
     seen_page_image_digests: set[bytes] = set()
@@ -788,22 +863,44 @@ def _extract_pdf_image_markdown(
             continue
         seen_page_image_digests.add(image_digest)
 
-        if seen_header_images is not None and _is_pdf_header_image(page, image):
-            signature = _pdf_header_image_signature(data_uri)
-            if any(
-                image_digest == seen_digest
-                or (
-                    signature is not None
-                    and seen_signature is not None
-                    and _pdf_header_images_match(signature, seen_signature)
-                )
-                for seen_digest, seen_signature in seen_header_images
-            ):
-                continue
-            seen_header_images.append((image_digest, signature))
-
         alt_text = f"PDF page {page_number} image {image_number}"
-        markdown_images.append(f"![{alt_text}]({data_uri})")
+        markdown_image = f"![{alt_text}]({data_uri})"
+
+        if header_image_groups is not None and _is_pdf_header_image(page, image):
+            signature = _pdf_header_image_signature(data_uri)
+            matching_group = next(
+                (
+                    group
+                    for group in header_image_groups
+                    if image_digest == group.digest
+                    or (
+                        signature is not None
+                        and group.signature is not None
+                        and _pdf_header_images_match(signature, group.signature)
+                    )
+                ),
+                None,
+            )
+            if matching_group is None:
+                matching_group = _PdfHeaderImageGroup(
+                    digest=image_digest,
+                    signature=signature,
+                )
+                header_image_groups.append(matching_group)
+
+            if matching_group.confirmed:
+                continue
+
+            matching_group.page_numbers.add(page_number)
+            matching_group.occurrences.append((markdown_images, markdown_image))
+            if len(matching_group.page_numbers) >= _PDF_HEADER_MIN_REPEAT_PAGES:
+                matching_group.confirmed = True
+                for emitted_images, emitted_markdown in matching_group.occurrences[1:]:
+                    if emitted_markdown in emitted_images:
+                        emitted_images.remove(emitted_markdown)
+                continue
+
+        markdown_images.append(markdown_image)
     return markdown_images
 
 
@@ -1541,7 +1638,7 @@ class PdfConverter(DocumentConverter):
             page_chunks: list[dict[str, Any]] = []
             form_page_count = 0
             multi_column_page_count = 0
-            seen_header_images: list[tuple[bytes, Any | None]] = []
+            header_image_groups: list[_PdfHeaderImageGroup] = []
 
             with pdfplumber.open(pdf_bytes) as pdf:
                 for page_idx, page in enumerate(pdf.pages):
@@ -1567,14 +1664,11 @@ class PdfConverter(DocumentConverter):
                             page,
                             page_idx + 1,
                             page_has_text_layer,
-                            seen_header_images,
+                            header_image_groups,
                         )
                         if keep_data_uris
                         else []
                     )
-
-                    if page_image_chunks:
-                        image_chunks.extend(page_image_chunks)
 
                     page_chunks.append(
                         {
@@ -1585,6 +1679,10 @@ class PdfConverter(DocumentConverter):
                     )
 
                     page.close()  # Free cached page data immediately
+
+            image_chunks = [
+                image for page_chunk in page_chunks for image in page_chunk["images"]
+            ]
 
             if form_page_count == 0:
                 pdf_bytes.seek(0)
