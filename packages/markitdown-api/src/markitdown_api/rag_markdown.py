@@ -8,6 +8,17 @@ _FENCE_RE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})")
 _TABLE_SEPARATOR_RE = re.compile(r"^\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)?\|?$")
 _DATE_RE = re.compile(r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b")
 _PDF_IMAGE_LINE_RE = re.compile(r"^!\[(?:.* - )?PDF page \d+ image \d+\]\(")
+_WRAPPED_DATA_IMAGE_START_RE = re.compile(
+    r"^!\[(?:\\.|[^\]])*\]\(" r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]*$"
+)
+_WRAPPED_DATA_IMAGE_RE = re.compile(
+    r"^!\[(?P<alt>(?:\\.|[^\]])*)\]"
+    r"\("
+    r"data:(?P<mimetype>image/[A-Za-z0-9.+-]+);base64,"
+    r"(?P<payload>[A-Za-z0-9+/=\r\n]+)"
+    r'(?P<title>\s+"(?:\\.|[^"])*")?'
+    r"\)$"
+)
 _CJK_SPACING_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])")
 
 _NOISE_LINES = {"+", "-", "--", "是", "否", "×", "√", "", "•"}
@@ -21,7 +32,8 @@ def optimize_markdown_for_rag(
 ) -> str:
     """Lightly normalize converted Markdown so downstream chunking has anchors."""
 
-    lines = _merge_split_registered_terms(markdown.splitlines())
+    lines = _merge_wrapped_data_image_lines(markdown.splitlines())
+    lines = _merge_split_registered_terms(lines)
     lines = _remove_repeated_page_footers(lines)
     line_counts = Counter(line.strip() for line in _non_fenced_lines(lines))
     heading_keyword_set = {
@@ -118,15 +130,15 @@ def _normalize_cjk_spacing(line: str) -> str:
 
 
 def _remove_repeated_page_footers(lines: list[str]) -> list[str]:
-    raw_lines = list(_non_fenced_raw_lines(lines))
-    footer_signatures = Counter(
+    boundary_footer_signatures = Counter(
         signature
-        for line in raw_lines
+        for line_index, line in _non_fenced_indexed_lines(lines)
+        if _next_nonblank_line_is_pdf_image(lines, line_index + 1)
         if (signature := _page_footer_signature(line)) is not None
     )
     repeated_footer_dates = {
         date_match.group(0)
-        for signature, count in footer_signatures.items()
+        for signature, count in boundary_footer_signatures.items()
         if count >= 3
         if (date_match := _DATE_RE.search(signature)) is not None
     }
@@ -147,18 +159,19 @@ def _remove_repeated_page_footers(lines: list[str]) -> list[str]:
             continue
 
         stripped = line.strip()
-        if skip_separator and _TABLE_SEPARATOR_RE.match(stripped):
+        if skip_separator and _is_table_separator_line(stripped):
             skip_separator = False
             continue
         skip_separator = False
 
         signature = _page_footer_signature(stripped)
         standalone_date = _DATE_RE.fullmatch(stripped)
+        is_pdf_footer_boundary = _next_nonblank_line_is_pdf_image(lines, line_index + 1)
         if (
             standalone_date is not None
             and standalone_date.group(0) in repeated_footer_dates
-            and _next_nonblank_line_is_pdf_image(lines, line_index + 1)
-        ) or (signature is not None and footer_signatures[signature] >= 3):
+            and is_pdf_footer_boundary
+        ) or (signature is not None and boundary_footer_signatures[signature] >= 3):
             skip_separator = stripped.startswith("|")
             continue
 
@@ -170,14 +183,23 @@ def _remove_repeated_page_footers(lines: list[str]) -> list[str]:
 def _next_nonblank_line_is_pdf_image(lines: list[str], start: int) -> bool:
     for line in lines[start:]:
         stripped = line.strip()
-        if stripped:
-            return _PDF_IMAGE_LINE_RE.match(stripped) is not None
+        if not stripped or _is_table_separator_line(stripped):
+            continue
+        return _PDF_IMAGE_LINE_RE.match(stripped) is not None
     return False
 
 
-def _non_fenced_raw_lines(lines: list[str]):
+def _is_table_separator_line(line: str) -> bool:
+    return _TABLE_SEPARATOR_RE.match(line) is not None or (
+        line.startswith("|")
+        and "-" in line
+        and re.fullmatch(r"[\s|:-]+", line) is not None
+    )
+
+
+def _non_fenced_indexed_lines(lines: list[str]):
     fence_marker: str | None = None
-    for line in lines:
+    for line_index, line in enumerate(lines):
         marker = _fence_marker(line)
         if fence_marker:
             if _is_closing_fence(marker, fence_marker):
@@ -186,7 +208,7 @@ def _non_fenced_raw_lines(lines: list[str]):
         if marker:
             fence_marker = marker
             continue
-        yield line.strip()
+        yield line_index, line.strip()
 
 
 def _page_footer_signature(line: str) -> str | None:
@@ -209,6 +231,64 @@ def _page_footer_signature(line: str) -> str | None:
         return None
 
     return f"{flattened[: page_match.start()]}#"
+
+
+def _merge_wrapped_data_image_lines(lines: list[str]) -> list[str]:
+    merged: list[str] = []
+    fence_marker: str | None = None
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        marker = _fence_marker(line)
+        if fence_marker:
+            merged.append(line)
+            if _is_closing_fence(marker, fence_marker):
+                fence_marker = None
+            i += 1
+            continue
+        if marker:
+            merged.append(line)
+            fence_marker = marker
+            i += 1
+            continue
+
+        candidate = line.strip()
+        if not _WRAPPED_DATA_IMAGE_START_RE.match(candidate):
+            merged.append(line)
+            i += 1
+            continue
+
+        merged_image = False
+        j = i + 1
+        while j < len(lines):
+            continuation = lines[j].strip()
+            if not continuation or _fence_marker(lines[j]):
+                break
+
+            candidate = f"{candidate}\n{continuation}"
+            image_match = _WRAPPED_DATA_IMAGE_RE.fullmatch(candidate)
+            if image_match is not None:
+                payload = "".join(image_match.group("payload").split())
+                title = image_match.group("title") or ""
+                merged.append(
+                    f"![{image_match.group('alt')}]"
+                    f"(data:{image_match.group('mimetype')};base64,{payload}{title})"
+                )
+                i = j + 1
+                merged_image = True
+                break
+
+            if re.fullmatch(r"[A-Za-z0-9+/=]+", continuation) is None:
+                break
+            j += 1
+
+        if merged_image:
+            continue
+
+        merged.append(line)
+        i += 1
+
+    return merged
 
 
 def _merge_split_registered_terms(lines: list[str]) -> list[str]:

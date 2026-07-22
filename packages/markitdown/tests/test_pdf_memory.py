@@ -295,6 +295,27 @@ class TestPdfMemoryOptimization:
 
         assert result.title == "示例工业公司介绍（for 示例客户）"
 
+    def test_pdf_preserves_dotted_filename_without_pdf_suffix_as_document_title(self):
+        page = _make_plain_page()
+
+        with patch(
+            "markitdown.converters._pdf_converter.pdfplumber"
+        ) as mock_pdfplumber, patch(
+            "markitdown.converters._pdf_converter.pdfminer"
+        ) as mock_pdfminer:
+            mock_pdfplumber.open.side_effect = _mock_pdfplumber_open([page])
+            mock_pdfminer.high_level.extract_text.return_value = "Plain text content"
+
+            result = MarkItDown().convert_stream(
+                io.BytesIO(b"fake pdf content"),
+                stream_info=StreamInfo(
+                    mimetype="application/pdf",
+                    filename="manual.v2",
+                ),
+            )
+
+        assert result.title == "manual.v2"
+
     def test_plain_text_pdf_falls_back_to_pdfminer(self):
         """Verify all-plain-text PDFs fall back to pdfminer.
 

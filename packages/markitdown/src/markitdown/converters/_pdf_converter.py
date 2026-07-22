@@ -67,7 +67,7 @@ def _pdf_document_title(stream_info: StreamInfo) -> str | None:
         return None
 
     basename = os.path.basename(filename).strip()
-    title, _ = os.path.splitext(basename)
+    title = basename[:-4] if basename.lower().endswith(".pdf") else basename
     return title.strip() or None
 
 
